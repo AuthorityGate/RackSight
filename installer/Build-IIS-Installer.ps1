@@ -1,12 +1,14 @@
 #Requires -Version 5.1
 [CmdletBinding()]
-param([string]$OutputPath,[string]$Version='1.1.6',[string]$CertificateThumbprint='787D83F3BFFD136E8D2F8AD3261FD15D393FAC7A')
+param([string]$OutputPath,[string]$Version='1.1.7',[string]$CertificateThumbprint='787D83F3BFFD136E8D2F8AD3261FD15D393FAC7A')
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 if(-not $OutputPath){$OutputPath=Join-Path $root 'release-iis'}
 if(Test-Path $OutputPath){Remove-Item $OutputPath -Recurse -Force}
 $stage=Join-Path $OutputPath 'stage';New-Item $stage -ItemType Directory -Force|Out-Null
 foreach($item in @('server.js','public','package.json','package-lock.json','node_modules','docs','LICENSE')){Copy-Item (Join-Path $root $item) (Join-Path $stage $item) -Recurse -Force}
+$nodeRuntime=(Get-Command node.exe -ErrorAction Stop).Source
+Copy-Item $nodeRuntime (Join-Path $stage 'node.exe') -Force
 $zip=Join-Path $OutputPath 'payload.zip';Add-Type -AssemblyName System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::CreateFromDirectory($stage,$zip,'Optimal',$false)
 $installer=Get-Content (Join-Path $PSScriptRoot 'Install-IIS-Package.ps1') -Raw
 $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($installer))

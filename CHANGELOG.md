@@ -2,6 +2,12 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.7] - 2026-08-14
+
+### Fixed
+
+- Bundled the signed Node.js runtime in the IIS Server installer so Store, WinGet, and offline deployments do not depend on a separately installed Node runtime.
+
 ## [1.1.6] - 2026-08-14
 
 ### Added
