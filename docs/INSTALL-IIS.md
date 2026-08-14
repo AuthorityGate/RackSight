@@ -1,5 +1,7 @@
 # Centralized RackSight deployment with IIS
 
+The signed `RackSight-IIS-Server-<version>.exe` release asset installs a complete server payload, including locked production dependencies, under `C:\Program Files\AuthorityGate\RackSight-Web` and opens this IIS configuration guide. It is separate from the Electron desktop installer. The server checks the official GitHub release once at startup and every 24 hours, recording the result in `update-status.json` in the RackSight data directory.
+
 Use this deployment when multiple authorized administrators need one centralized RackSight dashboard. IIS is the only network-facing component. The RackSight Node.js service remains bound to `127.0.0.1` and is not exposed directly to the LAN.
 
 ## Supported topology

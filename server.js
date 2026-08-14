@@ -20,6 +20,8 @@ const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
 const ALERT_EVENTS_FILE = path.join(DATA_DIR, 'alert-events.jsonl');
 const SMTP_FILE = path.join(DATA_DIR, 'smtp.enc.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const APP_VERSION = require('./package.json').version;
+const UPDATE_FILE = path.join(DATA_DIR, 'update-status.json');
 const MAX_BODY = 64 * 1024;
 const HISTORY_INTERVAL_MS = Math.max(30000, Number(process.env.HISTORY_INTERVAL_MS || 60000));
 const HISTORY_RETENTION_MS = 31 * 24 * 60 * 60 * 1000;
@@ -896,11 +898,32 @@ function createApp() {
   });
 }
 
+function checkForUpdates() {
+  const options = { hostname: 'api.github.com', path: '/repos/AuthorityGate/RackSight/releases/latest', headers: { 'User-Agent': 'AuthorityGate-RackSight-IIS', Accept: 'application/vnd.github+json' } };
+  https.get(options, response => {
+    let body = '';
+    response.setEncoding('utf8');
+    response.on('data', chunk => { if (body.length < 1024 * 1024) body += chunk; });
+    response.on('end', () => {
+      try {
+        const release = JSON.parse(body);
+        const latest = String(release.tag_name || '').replace(/^v/i, '');
+        const asset = Array.isArray(release.assets) ? release.assets.find(item => /^RackSight-IIS-Server-.*\.exe$/i.test(item.name)) : null;
+        ensureStorage();
+        fs.writeFileSync(UPDATE_FILE, JSON.stringify({ current: APP_VERSION, latest, updateAvailable: Boolean(asset && latest && latest !== APP_VERSION), assetName: asset?.name || null, checkedAt: new Date().toISOString() }, null, 2));
+        if (asset && latest !== APP_VERSION) console.log(`RackSight IIS update available: ${latest} (${asset.name})`);
+      } catch (error) { console.warn(`RackSight update check failed: ${error.message}`); }
+    });
+  }).on('error', error => console.warn(`RackSight update check failed: ${error.message}`));
+}
+
 if (require.main === module) {
   createApp().listen(PORT, HOST, () => {
     console.log(`RackSight dashboard: http://${HOST}:${PORT}`);
     console.log(`History: sampling every ${Math.round(HISTORY_INTERVAL_MS / 1000)}s, retaining 31 days`);
     startHistoryPolling();
+    checkForUpdates();
+    setInterval(checkForUpdates, 24 * 60 * 60 * 1000).unref();
   });
 }
 
