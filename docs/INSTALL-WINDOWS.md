@@ -1,6 +1,6 @@
 # Installing RackSight on Windows
 
-RackSight 1.1.0 is distributed as a Windows x64 installer and a portable executable. Both release files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
+RackSight 1.1.1 is distributed as a Windows x64 installer and a portable executable. Both release files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
 
 ## Installer
 
@@ -23,7 +23,7 @@ Setup attempts one registration with `https://license.authoritygate.com` contain
 For managed silent deployment, supply the required company name and email:
 
 ```powershell
-.\RackSight-Setup-1.1.0-x64.exe /S /RACKSIGHTCOMPANY="Example Company" /RACKSIGHTEMAIL=user@example.com
+.\RackSight-Setup-1.1.1-x64.exe /S /RACKSIGHTCOMPANY="Example Company" /RACKSIGHTEMAIL=user@example.com
 ```
 
 ## Portable application
@@ -35,7 +35,7 @@ Download `RackSight-Portable-<version>-x64.exe` and run it directly. No installa
 In PowerShell:
 
 ```powershell
-Get-AuthenticodeSignature .\RackSight-Setup-1.1.0-x64.exe |
+Get-AuthenticodeSignature .\RackSight-Setup-1.1.1-x64.exe |
   Select-Object Status, StatusMessage, SignerCertificate
 ```
 
@@ -44,7 +44,7 @@ Get-AuthenticodeSignature .\RackSight-Setup-1.1.0-x64.exe |
 To calculate a checksum:
 
 ```powershell
-Get-FileHash .\RackSight-Setup-1.1.0-x64.exe -Algorithm SHA256
+Get-FileHash .\RackSight-Setup-1.1.1-x64.exe -Algorithm SHA256
 ```
 
 Compare the result with the checksum published in the matching GitHub Release notes.
@@ -63,7 +63,7 @@ This directory is outside the installation folder and remains unchanged when Rac
 
 ## Automatic updates
 
-Installed builds check GitHub Releases shortly after startup. When a newer version is published, choose **Upgrade now**, **Read changelog**, or **Later**. Only the installed NSIS build supports in-app replacement; portable users should download and replace the portable executable manually. Update checks fail quietly when GitHub cannot be reached and never interrupt monitoring.
+Installed builds check GitHub Releases shortly after startup. Settings displays the installed version, last check, result, and a **Check for updates** button. When a newer version is published, choose **Upgrade now**, **Read changelog**, or **Later**. Only the installed NSIS build supports in-app replacement; portable users should download and replace the portable executable manually. A failed check is recorded in Settings and never interrupts monitoring.
 
 ## Running and closing
 

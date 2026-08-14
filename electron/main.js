@@ -2,7 +2,7 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
-const { app, BrowserWindow, Menu, Notification, Tray, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, shell, dialog, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
@@ -11,8 +11,45 @@ let webServer;
 let alertTimer;
 let isQuitting = false;
 let updatePromptOpen = false;
+let updateCheckPromise = null;
 const notifiedAt = new Map();
 const iconPath = path.join(__dirname, '..', 'Logo', 'racksight-icon.png');
+let updateState = { supported:false, status:'unavailable', currentVersion:app.getVersion(), availableVersion:null, checkedAt:null, error:null };
+
+function publicUpdateState() { return { ...updateState }; }
+function setUpdateState(changes) {
+  updateState = { ...updateState, ...changes };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:state', publicUpdateState());
+  return publicUpdateState();
+}
+
+function updateErrorMessage(error) {
+  const message = String(error?.message || error || 'Unknown update error').replace(/\s+/g, ' ').trim();
+  return message.length > 240 ? `${message.slice(0, 237)}...` : message;
+}
+
+async function checkForUpdates({ interactive = false } = {}) {
+  if (!app.isPackaged || process.platform !== 'win32') {
+    const state = setUpdateState({ supported:false, status:'unavailable', checkedAt:new Date().toISOString(), error:'Update checks are available in the installed Windows desktop application.' });
+    if (interactive && mainWindow) await dialog.showMessageBox(mainWindow, { type:'info', title:'RackSight updates', message:'Update checks are available in the installed Windows app.', buttons:['OK'], icon:iconPath });
+    return state;
+  }
+  if (updateCheckPromise) return updateCheckPromise;
+  updateCheckPromise = (async () => {
+    setUpdateState({ supported:true, status:'checking', currentVersion:app.getVersion(), checkedAt:null, error:null });
+    try {
+      await autoUpdater.checkForUpdates();
+    } catch (error) {
+      const message = updateErrorMessage(error);
+      setUpdateState({ status:'error', checkedAt:new Date().toISOString(), error:message });
+      if (interactive && mainWindow) await dialog.showMessageBox(mainWindow, { type:'error', title:'RackSight update check failed', message:'RackSight could not check for updates.', detail:message, buttons:['OK'], icon:iconPath });
+    } finally {
+      updateCheckPromise = null;
+    }
+    return publicUpdateState();
+  })();
+  return updateCheckPromise;
+}
 
 function persistentPaths() {
   const root = app.getPath('userData');
@@ -45,11 +82,18 @@ function backupPersistentData(version) {
 }
 
 function configureUpdates() {
-  if (!app.isPackaged || process.platform !== 'win32') return;
+  if (!app.isPackaged || process.platform !== 'win32') {
+    setUpdateState({ supported:false, status:'unavailable', currentVersion:app.getVersion() });
+    return;
+  }
+  setUpdateState({ supported:true, status:'idle', currentVersion:app.getVersion(), error:null });
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('error', () => { /* Offline/private GitHub access must not interrupt startup. */ });
+  autoUpdater.on('checking-for-update', () => setUpdateState({ status:'checking', error:null }));
+  autoUpdater.on('error', error => setUpdateState({ status:'error', checkedAt:new Date().toISOString(), error:updateErrorMessage(error) }));
+  autoUpdater.on('update-not-available', info => setUpdateState({ status:'current', availableVersion:info?.version || null, checkedAt:new Date().toISOString(), error:null }));
   autoUpdater.on('update-available', async info => {
+    setUpdateState({ status:'available', availableVersion:info.version, checkedAt:new Date().toISOString(), error:null });
     if (updatePromptOpen) return;
     updatePromptOpen = true;
     const result = await dialog.showMessageBox(mainWindow, {
@@ -62,11 +106,16 @@ function configureUpdates() {
     if (result.response === 1) {
       await shell.openExternal(`https://github.com/AuthorityGate/RackSight/releases/tag/v${encodeURIComponent(info.version)}`);
     } else if (result.response === 0) {
-      try { await autoUpdater.downloadUpdate(); }
-      catch { /* The next startup check offers the update again. */ }
+      try {
+        setUpdateState({ status:'downloading' });
+        await autoUpdater.downloadUpdate();
+      } catch (error) {
+        setUpdateState({ status:'error', error:updateErrorMessage(error) });
+      }
     }
   });
   autoUpdater.on('update-downloaded', async info => {
+    setUpdateState({ status:'downloaded', availableVersion:info.version, error:null });
     try { backupPersistentData(info.version); }
     catch (error) {
       await dialog.showMessageBox(mainWindow, { type:'error', title:'RackSight update paused', message:'RackSight could not back up its local data.', detail:`The update was not started. Your current data is unchanged. ${error.message}`, buttons:['OK'] });
@@ -83,8 +132,11 @@ function configureUpdates() {
       autoUpdater.quitAndInstall(false, true);
     }
   });
-  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 4000);
+  setTimeout(() => checkForUpdates(), 4000);
 }
+
+ipcMain.handle('updates:get-state', () => publicUpdateState());
+ipcMain.handle('updates:check', () => checkForUpdates({ interactive:true }));
 
 function showWindow() {
   if (!mainWindow) return;
@@ -126,7 +178,7 @@ async function startApplication() {
   });
   startHistoryPolling();
   const baseUrl = `http://127.0.0.1:${webServer.address().port}`;
-  mainWindow = new BrowserWindow({ width:1440, height:960, minWidth:900, minHeight:650, show:false, icon:iconPath, backgroundColor:'#08111f', webPreferences:{ contextIsolation:true, nodeIntegration:false, sandbox:true } });
+  mainWindow = new BrowserWindow({ width:1440, height:960, minWidth:900, minHeight:650, show:false, icon:iconPath, backgroundColor:'#08111f', webPreferences:{ contextIsolation:true, nodeIntegration:false, sandbox:true, preload:path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action:'deny' }; });
   mainWindow.once('ready-to-show', () => mainWindow.show());

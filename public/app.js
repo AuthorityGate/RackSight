@@ -1,6 +1,6 @@
 'use strict';
 
-const state = { servers: [], data: new Map(), timer: null, alertTimer: null, detailServerId: null, historyRange: '24h', view: 'overview', alertSettings: null, smtpSettings: null, alerts: [], notifiedAlerts: new Set() };
+const state = { servers: [], data: new Map(), timer: null, alertTimer: null, detailServerId: null, historyRange: '24h', view: 'overview', alertSettings: null, smtpSettings: null, alerts: [], notifiedAlerts: new Set(), updateState: { supported:Boolean(window.rackSightDesktop), status:window.rackSightDesktop ? 'idle' : 'unavailable', currentVersion:null, availableVersion:null, checkedAt:null, error:null } };
 const requestedView = new URLSearchParams(window.location.search).get('view');
 if (['overview','hardware','settings'].includes(requestedView)) state.view = requestedView;
 const $ = selector => document.querySelector(selector);
@@ -34,13 +34,30 @@ function showToast(message) {
   setTimeout(() => toast.classList.add('hidden'), 2500);
 }
 
+function updateStatusText(update) {
+  const labels = {
+    idle:'The automatic startup check is scheduled.',
+    checking:'Checking for a newer RackSight release…',
+    current:'RackSight is up to date.',
+    available:`RackSight ${update.availableVersion || ''} is available.`,
+    downloading:`Downloading RackSight ${update.availableVersion || ''}…`,
+    downloaded:`RackSight ${update.availableVersion || ''} is ready to install.`,
+    error:`Update check failed: ${update.error || 'The release service could not be reached.'}`,
+    unavailable:'Update checks are available in the installed Windows desktop application.'
+  };
+  return labels[update.status] || 'Update status is not available.';
+}
+
 function render() {
   const hasServers = state.servers.length > 0;
-  $('#emptyState').classList.toggle('hidden', hasServers);
+  $('#emptyState').classList.toggle('hidden', hasServers || state.view !== 'overview');
   $('#dashboard').classList.toggle('hidden', !hasServers || state.view !== 'overview');
-  $('#secondaryView').classList.toggle('hidden', !hasServers || state.view === 'overview');
+  $('#secondaryView').classList.toggle('hidden', state.view === 'overview' || (!hasServers && state.view !== 'settings'));
   renderPageHeader();
-  if (!state.servers.length) return;
+  if (!state.servers.length) {
+    if (state.view === 'settings') renderSecondaryView();
+    return;
+  }
   const records = state.servers.map(server => state.data.get(server.id));
   const successful = records.filter(item => item && !item.error);
   const healthy = successful.filter(item => String(item.overallHealth).toLowerCase() === 'ok').length;
@@ -97,7 +114,10 @@ function renderSettingsView() {
   const smtp = state.smtpSettings || { enabled:false, host:'', port:587, secure:false, username:'', from:'', to:'', passwordConfigured:false };
   const firing = state.alerts.filter(item => item.status === 'firing');
   const alertRows = state.alerts.length ? state.alerts.map(item => `<div class="active-alert ${item.status}"><strong>${escapeHtml(item.serverName)} · ${escapeHtml(item.sensor)}</strong><span>${escapeHtml(item.valueC)}°C / ${escapeHtml(item.thresholdC)}°C · ${escapeHtml(item.status)}</span></div>`).join('') : '<p class="muted">No pending or active temperature alerts.</p>';
-  return `<div class="view-heading"><div><h2>BMC connections</h2><p>Credentials remain encrypted on this dashboard host.</p></div><button class="button primary" data-add>＋ Add server</button></div><section class="settings-card connection-list">${rows}</section><div class="settings-columns alert-columns"><section class="settings-card"><h2>Temperature alerts</h2><form id="alertSettingsForm" class="config-form"><label class="toggle-row"><span><strong>Enable alerts</strong><small>Track every physical temperature sensor</small></span><input type="checkbox" id="alertsEnabled" ${alert.enabled ? 'checked' : ''}></label><div class="config-grid"><label>Threshold °C<input type="number" id="alertThreshold" min="20" max="120" value="${escapeHtml(alert.thresholdC)}"></label><label>Must remain high for<input type="number" id="alertDuration" min="1" max="1440" value="${escapeHtml(alert.durationMinutes)}"><small>minutes</small></label><label>Notification cooldown<input type="number" id="alertCooldown" min="1" max="10080" value="${escapeHtml(alert.cooldownMinutes)}"><small>minutes</small></label></div><label class="toggle-row"><span><strong>Browser notifications</strong><small>Show alerts while the web app is open</small></span><input type="checkbox" id="browserNotifications" ${alert.browserNotifications ? 'checked' : ''}></label><div class="form-buttons"><button type="button" class="button ghost" id="enableBrowserNotifications">Enable desktop permission</button><button class="button primary" type="submit">Save alert rules</button></div></form></section><section class="settings-card"><h2>Active alerts <span class="count-badge">${firing.length}</span></h2><div class="active-alerts">${alertRows}</div></section></div><section class="settings-card smtp-card"><div class="card-title-row"><div><h2>Email notifications</h2><p>SMTP credentials are encrypted at rest.</p></div></div><form id="smtpSettingsForm" class="config-form"><label class="toggle-row"><span><strong>Enable SMTP alerts</strong><small>Send high-temperature and recovery emails</small></span><input type="checkbox" id="smtpEnabled" ${smtp.enabled ? 'checked' : ''}></label><div class="smtp-grid"><label>SMTP host<input id="smtpHost" placeholder="smtp.example.com" value="${escapeHtml(smtp.host)}"></label><label>Port<input id="smtpPort" type="number" min="1" max="65535" value="${escapeHtml(smtp.port)}"></label><label class="toggle-compact">TLS from connection<input id="smtpSecure" type="checkbox" ${smtp.secure ? 'checked' : ''}></label><label>Username<input id="smtpUsername" autocomplete="username" value="${escapeHtml(smtp.username)}"></label><label>Password<input id="smtpPassword" type="password" autocomplete="new-password" placeholder="${smtp.passwordConfigured ? 'Configured — leave blank to keep' : 'SMTP password'}"></label><label>From address<input id="smtpFrom" type="email" placeholder="racksight@example.com" value="${escapeHtml(smtp.from)}"></label><label class="span-two">Recipients <small>comma-separated</small><input id="smtpTo" placeholder="ops@example.com, owner@example.com" value="${escapeHtml(smtp.to)}"></label></div><div class="form-buttons"><button type="button" class="button ghost" id="testSmtp">Send test email</button><button class="button primary" type="submit">Save email settings</button></div></form></section><div class="settings-columns"><section class="settings-card"><h2>Monitoring</h2>${kv('Browser refresh','30 seconds')}${kv('History sampling','60 seconds')}${kv('History retention','31 days')}${kv('Available ranges','1h · 4h · 24h · 7d · 30d')}${kv('Storage','Local JSONL')}</section><section class="settings-card"><h2>Connection policy</h2>${kv('Protocol','Redfish over HTTPS')}${kv('Self-signed certificates','Accepted')}${kv('BMC request concurrency','4 per server')}${kv('Transient retry','1 retry')}${kv('Credential encryption','AES-256-GCM')}</section></div><section class="settings-card settings-note"><h2>System configuration</h2><p>Select <strong>Details</strong> beside a server to review its BIOS attributes, boot configuration, firmware inventory, BMC network interfaces, sensors, and historical telemetry.</p></section>`;
+  const update = state.updateState;
+  const checkedAt = update.checkedAt ? new Date(update.checkedAt).toLocaleString() : 'Not checked yet';
+  const updatesCard = `<section class="settings-card update-card"><div><h2>Application updates</h2><p>${escapeHtml(updateStatusText(update))}</p><small>Installed version ${escapeHtml(update.currentVersion || '—')} · Last check ${escapeHtml(checkedAt)}</small></div><button type="button" class="button primary" id="checkForUpdates" ${!update.supported || update.status === 'checking' ? 'disabled' : ''}>${update.status === 'checking' ? 'Checking…' : 'Check for updates'}</button></section>`;
+  return `<div class="view-heading"><div><h2>BMC connections</h2><p>Credentials remain encrypted on this dashboard host.</p></div><button class="button primary" data-add>＋ Add server</button></div><section class="settings-card connection-list">${rows}</section><div class="settings-columns alert-columns"><section class="settings-card"><h2>Temperature alerts</h2><form id="alertSettingsForm" class="config-form"><label class="toggle-row"><span><strong>Enable alerts</strong><small>Track every physical temperature sensor</small></span><input type="checkbox" id="alertsEnabled" ${alert.enabled ? 'checked' : ''}></label><div class="config-grid"><label>Threshold °C<input type="number" id="alertThreshold" min="20" max="120" value="${escapeHtml(alert.thresholdC)}"></label><label>Must remain high for<input type="number" id="alertDuration" min="1" max="1440" value="${escapeHtml(alert.durationMinutes)}"><small>minutes</small></label><label>Notification cooldown<input type="number" id="alertCooldown" min="1" max="10080" value="${escapeHtml(alert.cooldownMinutes)}"><small>minutes</small></label></div><label class="toggle-row"><span><strong>Browser notifications</strong><small>Show alerts while the web app is open</small></span><input type="checkbox" id="browserNotifications" ${alert.browserNotifications ? 'checked' : ''}></label><div class="form-buttons"><button type="button" class="button ghost" id="enableBrowserNotifications">Enable desktop permission</button><button class="button primary" type="submit">Save alert rules</button></div></form></section><section class="settings-card"><h2>Active alerts <span class="count-badge">${firing.length}</span></h2><div class="active-alerts">${alertRows}</div></section></div><section class="settings-card smtp-card"><div class="card-title-row"><div><h2>Email notifications</h2><p>SMTP credentials are encrypted at rest.</p></div></div><form id="smtpSettingsForm" class="config-form"><label class="toggle-row"><span><strong>Enable SMTP alerts</strong><small>Send high-temperature and recovery emails</small></span><input type="checkbox" id="smtpEnabled" ${smtp.enabled ? 'checked' : ''}></label><div class="smtp-grid"><label>SMTP host<input id="smtpHost" placeholder="smtp.example.com" value="${escapeHtml(smtp.host)}"></label><label>Port<input id="smtpPort" type="number" min="1" max="65535" value="${escapeHtml(smtp.port)}"></label><label class="toggle-compact">TLS from connection<input id="smtpSecure" type="checkbox" ${smtp.secure ? 'checked' : ''}></label><label>Username<input id="smtpUsername" autocomplete="username" value="${escapeHtml(smtp.username)}"></label><label>Password<input id="smtpPassword" type="password" autocomplete="new-password" placeholder="${smtp.passwordConfigured ? 'Configured — leave blank to keep' : 'SMTP password'}"></label><label>From address<input id="smtpFrom" type="email" placeholder="racksight@example.com" value="${escapeHtml(smtp.from)}"></label><label class="span-two">Recipients <small>comma-separated</small><input id="smtpTo" placeholder="ops@example.com, owner@example.com" value="${escapeHtml(smtp.to)}"></label></div><div class="form-buttons"><button type="button" class="button ghost" id="testSmtp">Send test email</button><button class="button primary" type="submit">Save email settings</button></div></form></section>${updatesCard}<div class="settings-columns"><section class="settings-card"><h2>Monitoring</h2>${kv('Browser refresh','30 seconds')}${kv('History sampling','60 seconds')}${kv('History retention','31 days')}${kv('Available ranges','1h · 4h · 24h · 7d · 30d')}${kv('Storage','Local JSONL')}</section><section class="settings-card"><h2>Connection policy</h2>${kv('Protocol','Redfish over HTTPS')}${kv('Self-signed certificates','Accepted')}${kv('BMC request concurrency','4 per server')}${kv('Transient retry','1 retry')}${kv('Credential encryption','AES-256-GCM')}</section></div><section class="settings-card settings-note"><h2>System configuration</h2><p>Select <strong>Details</strong> beside a server to review its BIOS attributes, boot configuration, firmware inventory, BMC network interfaces, sensors, and historical telemetry.</p></section>`;
 }
 
 function renderSecondaryView() {
@@ -288,6 +308,15 @@ document.addEventListener('click', async event => {
     if (!('Notification' in window)) showToast('Notifications are not supported by this browser');
     else { const permission = await Notification.requestPermission(); showToast(permission === 'granted' ? 'Desktop notifications enabled' : 'Notification permission was not granted'); }
   }
+  if (event.target.closest('#checkForUpdates') && window.rackSightDesktop) {
+    const button = event.target.closest('#checkForUpdates'); button.disabled = true;
+    try {
+      state.updateState = await window.rackSightDesktop.checkForUpdates();
+      if (state.updateState.status === 'current') showToast('RackSight is up to date');
+      else if (state.updateState.status === 'available') showToast(`RackSight ${state.updateState.availableVersion} is available`);
+    } catch (error) { showToast(error.message || 'Update check failed'); }
+    finally { if (state.view === 'settings') renderSecondaryView(); }
+  }
   if (event.target.closest('#testSmtp')) {
     const button = event.target.closest('#testSmtp'); button.disabled = true;
     try {
@@ -331,6 +360,18 @@ $('#serverForm').addEventListener('submit', async event => {
 });
 
 $('#refreshButton').addEventListener('click', refreshAll);
+
+async function initializeDesktopUpdates() {
+  if (!window.rackSightDesktop) return;
+  window.rackSightDesktop.onUpdateState(update => {
+    state.updateState = update;
+    if (state.view === 'settings' && !document.activeElement?.closest?.('form')) renderSecondaryView();
+  });
+  try { state.updateState = await window.rackSightDesktop.getUpdateState(); }
+  catch (error) { state.updateState = { ...state.updateState, status:'error', error:error.message }; }
+}
+
+initializeDesktopUpdates();
 loadServers().catch(error => showToast(error.message));
 state.timer = setInterval(refreshAll, 30000);
 state.alertTimer = setInterval(pollAlerts, 15000);

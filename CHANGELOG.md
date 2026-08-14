@@ -2,6 +2,17 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.1] - 2026-08-14
+
+### Changed
+
+- Updated the RackSight application, installer, taskbar, tray, notification, and web-interface icon to the approved separated rack-and-arch design with a transparent gap around the arch.
+- Added a visible application-update status and manual **Check for updates** action to Settings.
+
+### Fixed
+
+- The installed Windows app now records and exposes every startup update-check result instead of silently hiding release-feed errors.
+
 ## [1.1.0] - 2026-08-14
 
 ### Added
