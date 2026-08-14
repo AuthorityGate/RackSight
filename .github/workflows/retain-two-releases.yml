@@ -1,4 +1,4 @@
-name: Retain newest two releases
+name: Retain current and two prior releases
 
 on:
   release:
@@ -12,7 +12,7 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete releases older than the newest two
+      - name: Delete releases older than the newest three
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -20,7 +20,7 @@ jobs:
         run: |
           gh release list --repo "$GH_REPO" --limit 100 \
             --json tagName,publishedAt \
-            --jq 'sort_by(.publishedAt) | reverse | .[2:] | .[].tagName' |
+            --jq 'sort_by(.publishedAt) | reverse | .[3:] | .[].tagName' |
           while IFS= read -r tag; do
             [ -n "$tag" ] && gh release delete "$tag" --repo "$GH_REPO" --cleanup-tag --yes
           done
