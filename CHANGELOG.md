@@ -17,6 +17,11 @@ All notable RackSight changes are documented here. Dates use ISO 8601.
 - Centralized deployments now enforce Node.js 22 or newer; Node.js 18 is no longer supported.
 - Release builds and development tooling are pinned to Node.js 24 while retaining Node.js 22 runtime compatibility.
 
+### Fixed
+
+- BMC HTTP 401, 403, and 429 responses now trigger an exponential 5-to-30-minute polling backoff instead of repeated requests that can prolong an ASRock Rack/AMI source-IP block.
+- Successful BMC data is cached for 55 seconds so the desktop UI and one-minute history collector share a poll instead of starting separate 30-second collections.
+
 ## [1.0.2] - 2026-08-14
 
 ### Fixed

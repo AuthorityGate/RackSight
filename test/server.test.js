@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory } = require('../server');
+const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
 
 test('normalizes BMC hostnames and addresses', () => {
   assert.equal(normalizeBaseUrl('bmc01.example.com'), 'https://bmc01.example.com');
@@ -40,6 +40,13 @@ test('limits concurrent BMC member requests', async () => {
   }));
   await Promise.all(tasks);
   assert.equal(peak, 2);
+});
+
+test('backs off repeated BMC authentication and rate-limit responses', () => {
+  assert.equal(nextBmcBackoff(), 5 * 60 * 1000);
+  assert.equal(nextBmcBackoff(5 * 60 * 1000), 10 * 60 * 1000);
+  assert.equal(nextBmcBackoff(20 * 60 * 1000), 30 * 60 * 1000);
+  assert.equal(nextBmcBackoff(30 * 60 * 1000), 30 * 60 * 1000);
 });
 
 test('creates compact history snapshots without full settings', () => {

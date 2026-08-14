@@ -23,9 +23,12 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 64 * 1024;
 const HISTORY_INTERVAL_MS = Math.max(30000, Number(process.env.HISTORY_INTERVAL_MS || 60000));
 const HISTORY_RETENTION_MS = 31 * 24 * 60 * 60 * 1000;
-const DATA_CACHE_MS = 20000;
+const DATA_CACHE_MS = 55000;
+const BMC_BACKOFF_INITIAL_MS = 5 * 60 * 1000;
+const BMC_BACKOFF_MAX_MS = 30 * 60 * 1000;
 const pollInFlight = new Map();
 const recentData = new Map();
+const bmcBackoffs = new Map();
 const lastRecordedAt = new Map();
 let alertStateLoaded = false;
 const activeAlerts = new Map();
@@ -489,6 +492,33 @@ function recordOffline(serverId, error) {
   appendHistory(serverId, { t: now, online: false, error: String(error?.message || error), temperatures: {}, fans: {} });
 }
 
+function nextBmcBackoff(previousDelay = 0) {
+  return previousDelay > 0
+    ? Math.min(BMC_BACKOFF_MAX_MS, previousDelay * 2)
+    : BMC_BACKOFF_INITIAL_MS;
+}
+
+function activeBmcBackoff(serverId, now = Date.now()) {
+  const backoff = bmcBackoffs.get(serverId);
+  if (!backoff || backoff.until <= now) return null;
+  const remainingMinutes = Math.max(1, Math.ceil((backoff.until - now) / 60000));
+  const error = new Error(`BMC temporarily refused requests (HTTP ${backoff.statusCode}). RackSight paused polling and will retry in about ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`);
+  error.statusCode = backoff.statusCode;
+  error.retryAfterMs = backoff.until - now;
+  return error;
+}
+
+function applyBmcBackoff(serverId, error, now = Date.now()) {
+  if (![401, 403, 429].includes(Number(error?.statusCode))) return error;
+  const previous = bmcBackoffs.get(serverId);
+  const delay = nextBmcBackoff(previous?.delay || 0);
+  bmcBackoffs.set(serverId, { delay, until: now + delay, statusCode: Number(error.statusCode) });
+  const minutes = Math.ceil(delay / 60000);
+  error.message = `${error.message} RackSight paused polling for ${minutes} minute${minutes === 1 ? '' : 's'} to avoid extending a BMC lockout or rate limit.`;
+  error.retryAfterMs = delay;
+  return error;
+}
+
 function evaluateTemperatureAlerts(server, data, now = Date.now()) {
   loadAlertState();
   const settings = readAlertSettings();
@@ -555,17 +585,24 @@ function readAlertEvents(limit = 100) {
 }
 
 async function pollServer(server, force = false) {
+  const paused = !force && activeBmcBackoff(server.id);
+  if (paused) {
+    recordOffline(server.id, paused);
+    throw paused;
+  }
   const cached = recentData.get(server.id);
   if (!force && cached && Date.now() - cached.time < DATA_CACHE_MS) return cached.data;
   if (pollInFlight.has(server.id)) return pollInFlight.get(server.id);
   const operation = collectServer(server)
     .then(data => {
+      bmcBackoffs.delete(server.id);
       recentData.set(server.id, { time: Date.now(), data });
       appendHistory(server.id, historySnapshot(data));
       evaluateTemperatureAlerts(server, data);
       return data;
     })
     .catch(error => {
+      applyBmcBackoff(server.id, error);
       recordOffline(server.id, error);
       throw error;
     })
@@ -798,4 +835,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, readHistory, startHistoryPolling, createApp };
+module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp };
