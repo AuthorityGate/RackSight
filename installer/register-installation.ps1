@@ -6,7 +6,7 @@ $attemptedAt = [DateTimeOffset]::UtcNow.ToString('o')
 
 function Set-RackSightRegistryValue {
     param([string]$Name, [string]$Value)
-    Set-ItemProperty -Path $registryPath -Name $Name -Value $Value -Type String -Force
+    New-ItemProperty -Path $registryPath -Name $Name -Value $Value -PropertyType String -Force | Out-Null
 }
 
 try {

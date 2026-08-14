@@ -2,6 +2,13 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.0.2] - 2026-08-14
+
+### Fixed
+
+- Corrected the Windows PowerShell registry-value operation used by installation registration. Version 1.0.1 setup collected and stored the required email but could stop before submitting the registration because `Set-ItemProperty` does not accept a `-Type` parameter.
+- Registration success, skipped status, timestamps, ID, FQDN, and error details are now reliably written under `HKLM\SOFTWARE\AuthorityGate\RackSight`.
+
 ## [1.0.1] - 2026-08-14
 
 ### Added

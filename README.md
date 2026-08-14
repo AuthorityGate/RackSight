@@ -3,7 +3,7 @@
 An AuthorityGate project
 Copyright (c) 2026 AuthorityGate
 
-[![Release](https://img.shields.io/badge/release-1.0.1-35d0d0)](https://github.com/AuthorityGate/RackSight/releases/tag/v1.0.1)
+[![Release](https://img.shields.io/badge/release-1.0.2-35d0d0)](https://github.com/AuthorityGate/RackSight/releases/tag/v1.0.2)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8b7cf6.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Node.js-4d9bea)](#installation)
 [![Redfish](https://img.shields.io/badge/management-DMTF%20Redfish-e9ad58)](COMPATIBILITY.md)
@@ -46,10 +46,10 @@ See the [compatibility matrix](COMPATIBILITY.md) for model families, test status
 
 ### Windows desktop application
 
-Download the signed installer from [GitHub Releases](https://github.com/AuthorityGate/RackSight/releases/tag/v1.0.1):
+Download the signed installer from [GitHub Releases](https://github.com/AuthorityGate/RackSight/releases/tag/v1.0.2):
 
-- `RackSight-Setup-1.0.1-x64.exe` — guided system-wide installation to `C:\Program Files\AuthorityGate\RackSight`
-- `RackSight-Portable-1.0.1-x64.exe` — no installation required
+- `RackSight-Setup-1.0.2-x64.exe` — guided system-wide installation to `C:\Program Files\AuthorityGate\RackSight`
+- `RackSight-Portable-1.0.2-x64.exe` — no installation required
 
 Both files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign. Verify the signature before running the application. See the complete [Windows installation guide](docs/INSTALL-WINDOWS.md).
 
