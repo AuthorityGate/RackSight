@@ -2,6 +2,14 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.6] - 2026-08-14
+
+### Added
+
+- Added unattended installation support for Microsoft Store and WinGet distribution.
+- Made installation registration optional during silent deployment; users can register through AuthorityGate after installation.
+- Prepared both Desktop and IIS Server installers for signed public package-manager delivery.
+
 ## [1.1.5] - 2026-08-14
 
 ### Changed

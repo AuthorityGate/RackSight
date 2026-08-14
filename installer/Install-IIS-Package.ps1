@@ -28,4 +28,29 @@ $server = $shell.CreateShortcut((Join-Path $startMenu 'Run RackSight Server.lnk'
 $server.TargetPath = Join-Path $installRoot 'Start-RackSight-IIS.cmd'
 $server.WorkingDirectory = $installRoot
 $server.Save()
-Start-Process (Join-Path $installRoot 'docs\INSTALL-IIS.md')
+
+$installedSetup = Join-Path $installRoot 'RackSight-IIS-Setup.exe'
+Copy-Item $env:AUTHORITYGATE_SETUP_SOURCE $installedSetup -Force
+$uninstaller = Join-Path $installRoot 'Uninstall.cmd'
+$uninstallScript = @"
+@echo off
+set "INSTALL_ROOT=$installRoot"
+set "START_MENU=$startMenu"
+if exist "%START_MENU%" rmdir /s /q "%START_MENU%"
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AuthorityGate RackSight IIS Server" /f >nul 2>&1
+start "" /b cmd /c "ping 127.0.0.1 -n 3 > nul & rmdir /s /q \"%INSTALL_ROOT%\""
+"@
+Set-Content $uninstaller $uninstallScript -Encoding ASCII
+$uninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AuthorityGate RackSight IIS Server'
+New-Item $uninstallKey -Force | Out-Null
+Set-ItemProperty $uninstallKey DisplayName 'AuthorityGate RackSight IIS Server'
+Set-ItemProperty $uninstallKey DisplayVersion $env:AUTHORITYGATE_SETUP_VERSION
+Set-ItemProperty $uninstallKey Publisher 'AuthorityGate Inc.'
+Set-ItemProperty $uninstallKey InstallLocation $installRoot
+Set-ItemProperty $uninstallKey UninstallString ('"' + $uninstaller + '"')
+Set-ItemProperty $uninstallKey QuietUninstallString ('"' + $uninstaller + '" /silent')
+Set-ItemProperty $uninstallKey NoModify 1
+Set-ItemProperty $uninstallKey NoRepair 1
+Set-ItemProperty $uninstallKey EstimatedSize ([int]((Get-ChildItem $installRoot -Recurse -File | Measure-Object Length -Sum).Sum / 1KB))
+
+if ($env:AUTHORITYGATE_RACKSIGHT_SILENT -ne '1') { Start-Process (Join-Path $installRoot 'docs\INSTALL-IIS.md') }
