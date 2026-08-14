@@ -1,0 +1,62 @@
+# Installing RackSight on Windows
+
+RackSight 1.0.0 is distributed as a Windows x64 installer and a portable executable. Both release files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
+
+## Installer
+
+1. Download `RackSight-Setup-<version>-x64.exe` from the repository's Releases page.
+2. Open **Properties → Digital Signatures** and confirm the signer is `AUTHORITYGATE INC`.
+3. Run the installer, accept the MIT license, and choose an installation directory.
+4. Start RackSight from the Start menu or desktop shortcut.
+5. Select **Add server** and enter the BMC FQDN or IP address, a descriptive name, and BMC credentials.
+
+The installer is per-user by default and does not require a system-wide installation.
+
+## Portable application
+
+Download `RackSight-Portable-<version>-x64.exe` and run it directly. No installation is required. Keep the file in a stable location if you configure automatic startup yourself.
+
+## Verify the signature
+
+In PowerShell:
+
+```powershell
+Get-AuthenticodeSignature .\RackSight-Setup-1.0.0-x64.exe |
+  Select-Object Status, StatusMessage, SignerCertificate
+```
+
+`Status` must be `Valid`, and the certificate subject must include `CN=AUTHORITYGATE INC`. Stop if the signature is missing, invalid, or names another publisher.
+
+To calculate a checksum:
+
+```powershell
+Get-FileHash .\RackSight-Setup-1.0.0-x64.exe -Algorithm SHA256
+```
+
+Compare the result with the checksum published in the matching GitHub Release notes.
+
+## Application data
+
+Electron stores RackSight data under the current Windows user's application-data directory, normally:
+
+```text
+%APPDATA%\RackSight\data
+```
+
+This directory contains the encryption key, encrypted BMC and SMTP credentials, alert state, alert events, and telemetry history. Back up the entire directory as one unit. Copying only the encrypted credential files without `master.key` makes them unrecoverable.
+
+## Running and closing
+
+Closing the RackSight window hides it to the notification area. Monitoring and alerts continue while its tray icon is present. Choose **Quit** from the tray menu to stop polling and notifications completely.
+
+SMTP, browser, and native alerts require RackSight to remain running. Verify a test email before relying on email notification delivery.
+
+## Network placement
+
+RackSight connects directly to each BMC over HTTPS. Allow outbound TCP 443 from the desktop to the management network. A read-only BMC account is recommended.
+
+Do not expose BMC interfaces or RackSight's embedded local service to the public internet.
+
+## Uninstall
+
+Use **Settings → Apps → Installed apps → RackSight → Uninstall**. Uninstalling the application may leave the per-user data directory so monitoring history and configuration can be preserved. Remove that directory manually only when the encrypted credentials and history are no longer needed.

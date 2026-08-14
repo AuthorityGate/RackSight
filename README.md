@@ -3,32 +3,75 @@
 An AuthorityGate project
 Copyright (c) 2026 AuthorityGate
 
-A cross-vendor monitoring and alerting dashboard for servers with a Redfish-capable BMC. It supports ASRock Rack and standard Redfish implementations such as Dell iDRAC, HPE iLO, Lenovo XClarity, Supermicro, Cisco CIMC, IBM, Intel BMC, Fujitsu iRMC, and OpenBMC. It provides:
+[![Release](https://img.shields.io/badge/release-1.0.0-35d0d0)](https://github.com/AuthorityGate/RackSight/releases/tag/v1.0.0)
+[![License: MIT](https://img.shields.io/badge/license-MIT-8b7cf6.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Node.js-4d9bea)](#installation)
+[![Redfish](https://img.shields.io/badge/management-DMTF%20Redfish-e9ad58)](COMPATIBILITY.md)
+
+RackSight is a local-first hardware monitoring and alerting dashboard for servers with a Redfish-capable BMC. It brings mixed-vendor health, inventory, temperatures, fans, history, and sustained-temperature alerts into one simple desktop application or internal web service.
+
+![RackSight overview](docs/images/racksight-overview.png)
+
+## What it monitors
 
 - Overall server health and power state
-- CPU and DIMM inventory
-- CPU and memory utilization when exposed by the BMC
-- Temperature and fan sensors
-- BIOS/BMC firmware inventory
+- Processor and DIMM inventory
+- CPU and memory utilization when the BMC exposes it
+- Physical temperature sensors and maximum temperature
+- Fan presence, speed, and health
+- BIOS, BMC, and component firmware inventory
 - Boot, BIOS, and BMC network settings
-- Persistent 1-hour, 4-hour, 24-hour, 7-day, and 30-day telemetry charts
+- Persistent 1-hour, 4-hour, 24-hour, 7-day, and 30-day charts
 - Configurable sustained-temperature alerts
-- Browser, native Electron, and encrypted SMTP notifications
+- Browser, native Windows, and encrypted SMTP notifications
 
-## Requirements
+RackSight reads BMC data; it does not change BIOS, boot, fan-control, or firmware settings.
+
+## Compatibility
+
+RackSight follows standard Redfish links and handles legacy `Thermal`, modern `ThermalSubsystem`, `EnvironmentMetrics`, chassis `Sensors`, and expanded collection members. It was developed and tested against three ASRock Rack B650D4U-2L2T/BCM systems and is expected to work with standards-compliant implementations from:
+
+- ASRock Rack AST2500/AST2600
+- Dell PowerEdge iDRAC7, iDRAC8, and iDRAC9
+- HPE ProLiant iLO4, iLO5, iLO6, and iLO7
+- Lenovo ThinkSystem XCC and XCC2
+- Supermicro X10/H11 and newer generations
+- Cisco UCS C-Series CIMC
+- Fujitsu PRIMERGY/PRIMEQUEST iRMC S5 and S6
+- IBM Power and generic OpenBMC/bmcweb platforms
+
+See the [compatibility matrix](COMPATIBILITY.md) for model families, test status, firmware caveats, required Redfish resources, and official vendor references. “Expected” compatibility is not the same as AuthorityGate lab validation.
+
+## Installation
+
+### Windows desktop application
+
+Download the signed installer from [GitHub Releases](https://github.com/AuthorityGate/RackSight/releases/tag/v1.0.0):
+
+- `RackSight-Setup-1.0.0-x64.exe` — guided per-user installation
+- `RackSight-Portable-1.0.0-x64.exe` — no installation required
+
+Both files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign. Verify the signature before running the application. See the complete [Windows installation guide](docs/INSTALL-WINDOWS.md).
+
+Closing the desktop window keeps RackSight running in the Windows notification area. Use the tray menu to quit and stop monitoring.
+
+### Node.js web service
+
+Requirements:
 
 - Node.js 18 or newer
-- Network access from the dashboard host to each BMC
-- A read-only BMC account (recommended)
+- Network access from the RackSight host to each BMC
 - Redfish enabled on each BMC
+- A dedicated read-only BMC account where supported
 
-## Run
+Install and start:
 
 ```bash
+npm ci --omit=dev
 npm start
 ```
 
-Open <http://127.0.0.1:3000>, select **Add server**, and enter the BMC's FQDN or IP address and credentials. Most BMCs use a self-signed certificate; these are accepted by default. Set `ALLOW_SELF_SIGNED=false` to require a certificate trusted by the dashboard host.
+Open <http://127.0.0.1:3000>, select **Add server**, and enter the BMC FQDN or IP address and credentials.
 
 To listen on the LAN:
 
@@ -36,72 +79,106 @@ To listen on the LAN:
 HOST=0.0.0.0 PORT=3000 npm start
 ```
 
-Put the dashboard behind an authenticated HTTPS reverse proxy before exposing it beyond a trusted management network.
+The web service has no built-in user authentication. Put it behind an authenticated HTTPS reverse proxy and management-network access controls before using a non-loopback binding.
 
-## Desktop application
+## First-run configuration
 
-Run the Electron desktop version during development:
+1. Add each BMC by FQDN or IP address.
+2. Use a descriptive display name and a least-privilege account.
+3. Confirm the Overview and Hardware pages populate as expected.
+4. Open Settings and choose a physical temperature threshold and required duration.
+5. Enable Windows/browser notifications if desired.
+6. Configure SMTP and send a test message before enabling email alerts.
+7. Leave RackSight running so history and alerts continue collecting.
 
-```bash
-npm run electron
-```
-
-Build Windows installer and portable artifacts:
-
-```bash
-npm run dist:win
-```
-
-The desktop app continues monitoring in the system tray when its window is closed. Its credentials, alert rules, SMTP configuration, and history are stored under Electron's per-user application-data directory.
-
-## Credential storage
-
-Credentials never return to the browser after saving. They are encrypted with AES-256-GCM in `data/servers.enc.json`; a randomly generated 256-bit key is stored at `data/master.key`. Both are created with owner-only permissions where supported.
-
-For containers or reproducible deployments, set a persistent secret instead:
-
-```bash
-DASHBOARD_SECRET='replace-with-a-long-random-secret' npm start
-```
-
-Do not change or lose the secret while encrypted server records exist. The `data/` directory is excluded from Git.
+![RackSight settings](docs/images/racksight-settings.png)
 
 ## Historical telemetry
 
-The server polls configured BMCs in the background every 60 seconds, including when no browser is open. Compact snapshots are written to `data/history/<server-id>.jsonl` and retained for 31 days. The API uses one-minute points for one hour, two-minute points for four hours, five-minute points for 24 hours, 30-minute points for seven days, and two-hour points for 30 days.
+The service polls configured BMCs every 60 seconds, including when no browser window is open. Compact snapshots are stored in `data/history/<server-id>.jsonl` and retained for 31 days.
 
-You can change the collection interval, with a minimum of 30 seconds:
+| Range | Display resolution |
+| --- | --- |
+| 1 hour | 1 minute |
+| 4 hours | 2 minutes |
+| 24 hours | 5 minutes |
+| 7 days | 30 minutes |
+| 30 days | 2 hours |
+
+Change the collection interval, with a minimum of 30 seconds:
 
 ```bash
 HISTORY_INTERVAL_MS=60000 npm start
 ```
 
-History begins accumulating after this version starts; it cannot reconstruct telemetry from before collection was enabled.
+History starts when this version begins collecting and cannot reconstruct earlier telemetry.
 
 ## Alerts and SMTP
 
-Temperature alerts apply to physical Redfish temperature sensors; synthetic values such as ASRock's `FSC_INDEX` are excluded. Configure the threshold, required time above threshold, repeat cooldown, browser permission, and SMTP delivery on the Settings page. SMTP passwords are encrypted using the same AES-256-GCM credential key as BMC passwords. Test-email delivery is available before enabling SMTP alerts.
+Temperature alerts apply only to physical Redfish temperature sensors. Synthetic values such as ASRock's `FSC_INDEX` are excluded. A sensor must remain above the configured threshold for the full duration before RackSight fires an alert.
 
-Both high-temperature and recovery messages are recorded in `data/alert-events.jsonl`. Email delivery requires the RackSight process to remain running.
+Alerts can produce:
+
+- Browser notifications while the page is open
+- Native Windows notifications while Electron runs in the tray
+- SMTP high-temperature and recovery messages
+- Persistent fired/recovery records in `alert-events.jsonl`
+
+SMTP passwords are encrypted at rest. Alert delivery is best-effort and requires the process to remain running; RackSight is not a safety controller.
+
+## Credential and data storage
+
+BMC and SMTP passwords never return to the browser after saving. RackSight encrypts them with AES-256-GCM. In Node.js mode, runtime state lives in `data/`. Electron uses the current user's RackSight application-data directory.
+
+For a reproducible service deployment, supply a persistent secret:
+
+```bash
+DASHBOARD_SECRET='replace-with-a-long-random-secret' npm start
+```
+
+Do not change or lose the secret while encrypted records exist. Never commit `data/`, `master.key`, encrypted credential stores, diagnostic exports, or screenshots containing private infrastructure identifiers.
+
+Most BMCs use self-signed certificates, which RackSight accepts by default. Set `ALLOW_SELF_SIGNED=false` to require a certificate trusted by the RackSight host.
 
 ## Redfish differences
 
-Inventory, health, and temperatures are widely supported. Live CPU and memory utilization are optional Redfish/OEM telemetry, and some ASRock BMC firmware does not publish them. RackSight displays `N/A` in that case rather than estimating incorrect values. Updating the board's BMC firmware may expose additional data.
+Inventory, health, and temperatures are widely available. CPU and memory workload utilization are optional Redfish/OEM telemetry. RackSight displays `N/A` instead of estimating missing metrics.
 
-The B650D4U BMC telemetry service exposes temperature, fan, and voltage definitions but not host CPU or memory workload utilization. RackSight therefore omits an empty utilization history chart. Workload history requires a separate ESXi or vCenter integration.
+The tested B650D4U BMC publishes sensor and inventory data but not host workload utilization. Use an operating-system or hypervisor integration such as vCenter/ESXi performance metrics when workload history is required.
 
-AMI firmware reports `FSC_INDEX` in Redfish's temperature collection, but it is a synthetic fan-speed-control index rather than a physical temperature. RackSight displays it separately and excludes it from maximum-temperature calculations.
+AMI firmware places `FSC_INDEX` in the Redfish temperature collection even though it is a fan-speed-control index. RackSight displays it separately and excludes it from maximum-temperature calculations and alerts.
 
-## Test
+## Documentation
+
+- [Compatibility matrix](COMPATIBILITY.md)
+- [Windows installation](docs/INSTALL-WINDOWS.md)
+- [Architecture and data flow](docs/ARCHITECTURE.md)
+- [Local API](docs/API.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Contribution and branch policy](CONTRIBUTING.md)
+
+## Development and packaging
 
 ```bash
+npm ci
 npm test
+npm run electron
 ```
+
+Build the Windows installer and portable executable:
+
+```bash
+npm run dist:win
+```
+
+Windows release builds are configured to use the AuthorityGate EV code-signing certificate in the Windows certificate store. The hardware signing token must be connected. Do not distribute an unsigned build as an AuthorityGate release.
 
 ## Repository policy
 
-AuthorityGate maintains exactly two branches: `main` is the stable/default branch and `Dev` is the active development branch. External pull requests are not accepted and are closed automatically. See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete policy.
+AuthorityGate maintains exactly two branches: `main` is stable/default and `Dev` is active development. External pull requests are not accepted and are closed automatically. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License, warranty, and support
 
-RackSight is licensed under the [MIT License](LICENSE). It is provided **as is**, without warranty or guarantee of any kind. AuthorityGate provides no support commitment, service-level agreement, implementation assistance, compatibility guarantee, or obligation to fix defects. RackSight is not a replacement for vendor-supported monitoring or safety controls; users are responsible for validating alert delivery and operating the software securely.
+RackSight is licensed under the [MIT License](LICENSE). It is provided **as is**, without warranty or guarantee of any kind. AuthorityGate provides no support commitment, service-level agreement, implementation assistance, compatibility guarantee, or obligation to fix defects. Users are responsible for evaluating, securing, and operating it. RackSight does not replace vendor-supported monitoring or hardware safety controls.

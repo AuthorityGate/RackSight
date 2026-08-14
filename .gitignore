@@ -2,6 +2,5 @@ data/
 node_modules/
 release/
 .electron-test/
-StupidCaseFAN.png
 .DS_Store
 npm-debug.log*
