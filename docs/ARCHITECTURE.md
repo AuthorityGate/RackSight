@@ -1,10 +1,11 @@
 # RackSight architecture
 
-RackSight is a local-first monitoring application. It can run as a Node.js web service or inside Electron. It does not require a cloud service or database.
+RackSight supports an Electron desktop deployment or a centralized IIS deployment. IIS terminates HTTPS and authenticates users while proxying to the RackSight Node.js service on loopback. RackSight does not require a cloud service or database.
 
 ```mermaid
 flowchart LR
-    UI[Browser or Electron window] -->|Local JSON API| App[Node.js RackSight service]
+    UI[Electron window or authenticated IIS user] -->|JSON API| Edge[Electron loopback or IIS HTTPS]
+    Edge --> App[Node.js RackSight service]
     App -->|HTTPS Basic auth / read-only GET| BMC1[Redfish BMC]
     App -->|HTTPS Basic auth / read-only GET| BMC2[Redfish BMC]
     App --> Store[(Encrypted configuration and JSONL history)]
@@ -19,7 +20,7 @@ flowchart LR
 - `server.js` serves the static UI, local JSON API, Redfish collector, history worker, encryption, alert state machine, and SMTP delivery.
 - `public/` contains the dependency-free browser interface and chart renderer.
 - `electron/main.js` starts the service on a random loopback port, hosts it in a sandboxed `BrowserWindow`, manages the tray, and displays native notifications.
-- `data/` contains runtime state for web mode. Electron redirects this directory into its per-user application-data location.
+- The configured `RACKSIGHT_DATA_DIR` contains centralized IIS runtime state. Electron redirects it into its per-user application-data location.
 
 ## Collection flow
 
@@ -49,7 +50,7 @@ When `DASHBOARD_SECRET` is set, RackSight derives the encryption key from that v
 
 ## Trust boundaries
 
-- The local API trusts any client that can connect to its listening address. It has no built-in login or authorization layer.
+- The local API trusts any client that can connect to its listening address. Electron keeps it on a random loopback port; centralized deployments keep it on loopback and require authenticated IIS HTTPS access.
 - BMC credentials are decrypted only in the Node.js process and are never returned by the API.
 - Self-signed BMC TLS certificates are accepted by default for common management-network deployments. Set `ALLOW_SELF_SIGNED=false` to enforce normal certificate validation.
 - SMTP traffic uses the configured transport. Use port 465 with secure mode or port 587 with STARTTLS according to the mail provider's requirements.

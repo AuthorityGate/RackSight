@@ -8,6 +8,8 @@
 !include "StrContains.nsh"
 Var RackSightEmail
 Var RackSightEmailInput
+Var RackSightCompany
+Var RackSightCompanyInput
 Var RackSightValidationLabel
 
 Function RackSightValidateEmail
@@ -24,6 +26,12 @@ Function RackSightValidateEmail
   ${StrContains} $R9 "." $RackSightEmail
   ${If} $R9 == ""
     StrCpy $R8 "Enter a valid email address."
+  ${EndIf}
+FunctionEnd
+
+Function RackSightValidateCompany
+  ${If} $RackSightCompany == ""
+    StrCpy $R8 "Enter a company name to continue."
   ${EndIf}
 FunctionEnd
 
@@ -50,21 +58,27 @@ Function RackSightRegistrationPageCreate
   CreateFont $1 "Segoe UI" 12 700
   SendMessage $0 ${WM_SETFONT} $1 1
 
-  ${NSD_CreateLabel} 0 28u 100% 26u "Enter an email address. RackSight will attempt to send it with this computer's FQDN and the installed app version to AuthorityGate."
+  ${NSD_CreateLabel} 0 28u 100% 26u "Enter a company name and email address. RackSight will attempt to send them with this computer's FQDN and the installed app version to AuthorityGate."
   Pop $0
-  ${NSD_CreateText} 0 60u 100% 13u "$RackSightEmail"
+  ${NSD_CreateLabel} 0 58u 28% 12u "Company name"
+  Pop $0
+  ${NSD_CreateText} 29% 56u 71% 13u "$RackSightCompany"
+  Pop $RackSightCompanyInput
+  ${NSD_CreateLabel} 0 77u 28% 12u "Email address"
+  Pop $0
+  ${NSD_CreateText} 29% 75u 71% 13u "$RackSightEmail"
   Pop $RackSightEmailInput
-  ${NSD_CreateLabel} 0 78u 100% 12u ""
+  ${NSD_CreateLabel} 0 93u 100% 12u ""
   Pop $RackSightValidationLabel
   SetCtlColors $RackSightValidationLabel 0xB00020 transparent
 
-  ${NSD_CreateLabel} 0 97u 100% 28u "This is install registration only. RackSight has no license key, activation requirement, feature restriction, or network dependency. If the service cannot be reached, setup continues normally."
+  ${NSD_CreateLabel} 0 108u 100% 28u "This is install registration only. RackSight has no license key, activation requirement, feature restriction, or network dependency. If the service cannot be reached, setup continues normally."
   Pop $0
-  ${NSD_CreateLabel} 0 133u 100% 12u "AuthorityGate license and registration service"
+  ${NSD_CreateLabel} 0 141u 100% 12u "AuthorityGate license and registration service"
   Pop $0
   SetCtlColors $0 0x0057B8 transparent
   ${NSD_OnClick} $0 RackSightOpenLicenseSite
-  ${NSD_CreateLabel} 0 150u 100% 12u "RackSight source and releases on GitHub"
+  ${NSD_CreateLabel} 0 158u 100% 12u "RackSight source and releases on GitHub"
   Pop $0
   SetCtlColors $0 0x0057B8 transparent
   ${NSD_OnClick} $0 RackSightOpenGitHub
@@ -73,7 +87,13 @@ FunctionEnd
 
 Function RackSightRegistrationPageLeave
   ${NSD_GetText} $RackSightEmailInput $RackSightEmail
+  ${NSD_GetText} $RackSightCompanyInput $RackSightCompany
   Call RackSightValidateEmail
+  ${If} $R8 != ""
+    ${NSD_SetText} $RackSightValidationLabel $R8
+    Abort
+  ${EndIf}
+  Call RackSightValidateCompany
   ${If} $R8 != ""
     ${NSD_SetText} $RackSightValidationLabel $R8
     Abort
@@ -83,15 +103,25 @@ FunctionEnd
 !macro customInit
   SetRegView 64
   ReadRegStr $RackSightEmail HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationEmail"
+  ReadRegStr $RackSightCompany HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationCompany"
   ${GetParameters} $R0
   ${GetOptions} $R0 "/RACKSIGHTEMAIL=" $R1
   ${IfNot} ${Errors}
     StrCpy $RackSightEmail $R1
   ${EndIf}
+  ${GetOptions} $R0 "/RACKSIGHTCOMPANY=" $R1
+  ${IfNot} ${Errors}
+    StrCpy $RackSightCompany $R1
+  ${EndIf}
   ${If} ${Silent}
     Call RackSightValidateEmail
     ${If} $R8 != ""
       MessageBox MB_ICONSTOP "Silent setup requires /RACKSIGHTEMAIL=user@example.com."
+      Abort
+    ${EndIf}
+    Call RackSightValidateCompany
+    ${If} $R8 != ""
+      MessageBox MB_ICONSTOP 'Silent setup requires /RACKSIGHTCOMPANY="Company Name".'
       Abort
     ${EndIf}
   ${EndIf}
@@ -107,6 +137,7 @@ FunctionEnd
   WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "ProductName" "RackSight"
   WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "Version" "${VERSION}"
   WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationEmail" "$RackSightEmail"
+  WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationCompany" "$RackSightCompany"
   WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationEndpoint" "https://license.authoritygate.com/api/racksight/installations"
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\registration\register-installation.ps1"'
 !macroend

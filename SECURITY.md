@@ -22,7 +22,7 @@ Do not submit ordinary installation, compatibility, configuration, or feature re
 - Keep RackSight and all BMC interfaces on a trusted management network.
 - Use a dedicated least-privilege, read-only BMC account where the vendor permits it.
 - Keep the default loopback binding for desktop use.
-- The web service has no built-in user authentication. A LAN deployment must use an authenticated HTTPS reverse proxy and network access controls.
+- For centralized viewing, keep the RackSight service bound to loopback and expose it only through an authenticated IIS HTTPS site with management-network access controls.
 - Treat `%APPDATA%\RackSight\data` or the configured `data/` directory as sensitive.
 - Back up `master.key` with encrypted credential files; do not commit either.
 - Prefer trusted BMC certificates. Self-signed BMC certificates are accepted by default for compatibility and weaken server identity verification.

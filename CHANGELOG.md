@@ -2,6 +2,21 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.0] - 2026-08-14
+
+### Added
+
+- Average and peak telemetry values for every 1-hour, 4-hour, 24-hour, 7-day, and 30-day chart bucket.
+- Matching solid average and dashed peak chart series for CPU, memory, temperatures, fan speed, and fan-control demand.
+- A supported centralized deployment guide using an authenticated HTTPS IIS reverse proxy and a loopback-only RackSight service.
+- Required company-name capture in installation registration, stored with the existing email, computer FQDN, and application version.
+
+### Changed
+
+- Public deployment guidance now focuses on the Electron desktop app or centralized IIS instead of direct Node.js/LAN exposure.
+- Centralized deployments now enforce Node.js 22 or newer; Node.js 18 is no longer supported.
+- Release builds and development tooling are pinned to Node.js 24 while retaining Node.js 22 runtime compatibility.
+
 ## [1.0.2] - 2026-08-14
 
 ### Fixed

@@ -57,14 +57,22 @@ test('creates compact history snapshots without full settings', () => {
   assert.equal('settings' in snapshot, false);
 });
 
-test('downsamples history into averaged time buckets', () => {
+test('downsamples history into average and peak time buckets', () => {
   const points = downsampleHistory([
-    { t: 1000, online: true, cpu: 20, temperatures: { TEMP_CPU: 50 }, fans: {} },
-    { t: 2000, online: true, cpu: 40, temperatures: { TEMP_CPU: 60 }, fans: {} }
+    { t: 1000, online: true, cpu: 20, memory: 30, fsc: 70, temperatures: { TEMP_CPU: 50 }, fans: { FAN1: 3000 } },
+    { t: 2000, online: true, cpu: 40, memory: 50, fsc: 80, temperatures: { TEMP_CPU: 60 }, fans: { FAN1: 5000 } }
   ], 5000);
   assert.equal(points.length, 1);
   assert.equal(points[0].cpu, 30);
+  assert.equal(points[0].cpuPeak, 40);
+  assert.equal(points[0].memory, 40);
+  assert.equal(points[0].memoryPeak, 50);
+  assert.equal(points[0].fsc, 75);
+  assert.equal(points[0].fscPeak, 80);
   assert.equal(points[0].temperatures.TEMP_CPU, 55);
+  assert.equal(points[0].temperaturePeaks.TEMP_CPU, 60);
+  assert.equal(points[0].fans.FAN1, 4000);
+  assert.equal(points[0].fanPeaks.FAN1, 5000);
   assert.equal(points[0].onlinePercent, 100);
 });
 

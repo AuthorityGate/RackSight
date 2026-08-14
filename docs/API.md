@@ -2,7 +2,7 @@
 
 The browser and Electron interface use the same local JSON API. It is intended for the bundled UI, internal automation, and troubleshooting.
 
-The API has no built-in authentication. Keep the default `127.0.0.1` binding or place LAN deployments behind an authenticated HTTPS reverse proxy.
+The API has no built-in authentication. Electron keeps it on loopback. Centralized deployments must keep the service on loopback and expose it only through the authenticated IIS HTTPS site described in [INSTALL-IIS.md](INSTALL-IIS.md).
 
 ## Responses
 
@@ -20,6 +20,8 @@ The API has no built-in authentication. Keep the default `127.0.0.1` binding or 
 | `DELETE` | `/api/servers/{id}` | Delete a server connection. Existing history files are retained. |
 | `GET` | `/api/servers/{id}/data` | Collect or return recently cached normalized Redfish data. |
 | `GET` | `/api/servers/{id}/history?range=24h` | Return downsampled telemetry for `1h`, `4h`, `24h`, `7d`, or `30d`. |
+
+Each history bucket includes average scalar values with matching `*Peak` fields and average sensor maps with matching peak maps: `temperaturePeaks` and `fanPeaks`. Bucket widths are 1 minute, 2 minutes, 5 minutes, 30 minutes, and 2 hours for the five supported ranges.
 
 Example server request:
 

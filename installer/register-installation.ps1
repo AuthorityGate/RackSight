@@ -16,9 +16,13 @@ try {
 
     $installation = Get-ItemProperty -Path $registryPath
     $email = [string]$installation.RegistrationEmail
+    $company = [string]$installation.RegistrationCompany
     $appVersion = [string]$installation.Version
     if ([string]::IsNullOrWhiteSpace($email) -or $email -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$') {
         throw 'The required registration email is missing or invalid.'
+    }
+    if ([string]::IsNullOrWhiteSpace($company)) {
+        throw 'The required registration company name is missing.'
     }
 
     $ipProperties = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties()
@@ -35,6 +39,7 @@ try {
     Set-RackSightRegistryValue -Name 'ComputerFqdn' -Value $fqdn
 
     $payload = @{
+        company = $company.Trim()
         email = $email.Trim().ToLowerInvariant()
         fqdn = $fqdn
         app_version = $appVersion

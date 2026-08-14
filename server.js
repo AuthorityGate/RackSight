@@ -574,13 +574,14 @@ async function pollServer(server, force = false) {
   return operation;
 }
 
-function averageMap(target, source) {
+function summarizeMap(target, source) {
   for (const [name, rawValue] of Object.entries(source || {})) {
     const value = Number(rawValue);
     if (!Number.isFinite(value)) continue;
-    const entry = target[name] || { sum: 0, count: 0 };
+    const entry = target[name] || { sum: 0, count: 0, peak: null };
     entry.sum += value;
     entry.count += 1;
+    entry.peak = entry.peak == null ? value : Math.max(entry.peak, value);
     target[name] = entry;
   }
 }
@@ -591,28 +592,38 @@ function downsampleHistory(points, bucketMs) {
     const key = Math.floor(point.t / bucketMs) * bucketMs;
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { t: key, samples: 0, online: 0, health: point.health, cpu: 0, cpuCount: 0, memory: 0, memoryCount: 0, memoryGiB: 0, memoryGiBCount: 0, fsc: 0, fscCount: 0, temperatures: {}, fans: {} };
+      bucket = { t: key, samples: 0, online: 0, health: point.health, cpu: 0, cpuCount: 0, cpuPeak: null, memory: 0, memoryCount: 0, memoryPeak: null, memoryGiB: 0, memoryGiBCount: 0, memoryGiBPeak: null, fsc: 0, fscCount: 0, fscPeak: null, temperatures: {}, fans: {} };
       buckets.set(key, bucket);
     }
     bucket.samples += 1;
     bucket.online += point.online ? 1 : 0;
     for (const field of ['cpu', 'memory', 'memoryGiB', 'fsc']) {
-      if (Number.isFinite(point[field])) { bucket[field] += point[field]; bucket[`${field}Count`] += 1; }
+      if (Number.isFinite(point[field])) {
+        bucket[field] += point[field];
+        bucket[`${field}Count`] += 1;
+        bucket[`${field}Peak`] = bucket[`${field}Peak`] == null ? point[field] : Math.max(bucket[`${field}Peak`], point[field]);
+      }
     }
     if (point.health && point.health !== 'OK') bucket.health = point.health;
-    averageMap(bucket.temperatures, point.temperatures);
-    averageMap(bucket.fans, point.fans);
+    summarizeMap(bucket.temperatures, point.temperatures);
+    summarizeMap(bucket.fans, point.fans);
   }
   return [...buckets.values()].sort((a, b) => a.t - b.t).map(bucket => ({
     t: bucket.t,
     onlinePercent: Math.round(bucket.online / bucket.samples * 1000) / 10,
     health: bucket.health || 'Unknown',
     cpu: bucket.cpuCount ? Math.round(bucket.cpu / bucket.cpuCount * 10) / 10 : null,
+    cpuPeak: bucket.cpuPeak,
     memory: bucket.memoryCount ? Math.round(bucket.memory / bucket.memoryCount * 10) / 10 : null,
+    memoryPeak: bucket.memoryPeak,
     memoryGiB: bucket.memoryGiBCount ? Math.round(bucket.memoryGiB / bucket.memoryGiBCount * 10) / 10 : null,
+    memoryGiBPeak: bucket.memoryGiBPeak,
     fsc: bucket.fscCount ? Math.round(bucket.fsc / bucket.fscCount * 10) / 10 : null,
+    fscPeak: bucket.fscPeak,
     temperatures: Object.fromEntries(Object.entries(bucket.temperatures).map(([name, value]) => [name, Math.round(value.sum / value.count * 10) / 10])),
-    fans: Object.fromEntries(Object.entries(bucket.fans).map(([name, value]) => [name, Math.round(value.sum / value.count)]))
+    temperaturePeaks: Object.fromEntries(Object.entries(bucket.temperatures).map(([name, value]) => [name, value.peak])),
+    fans: Object.fromEntries(Object.entries(bucket.fans).map(([name, value]) => [name, Math.round(value.sum / value.count)])),
+    fanPeaks: Object.fromEntries(Object.entries(bucket.fans).map(([name, value]) => [name, value.peak]))
   }));
 }
 

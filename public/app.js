@@ -199,20 +199,27 @@ function historyChart(title, unit, points, series) {
       else if (current.length) { segments.push(current); current = []; }
     }
     if (current.length) segments.push(current);
-    return segments.map(segment => `<polyline points="${segment.join(' ')}" fill="none" stroke="${chartColors[index % chartColors.length]}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
+    const color = item.color || chartColors[index % chartColors.length];
+    return segments.map(segment => `<polyline points="${segment.join(' ')}" fill="none" stroke="${color}" stroke-width="${item.dashed ? '1.6' : '2'}" stroke-dasharray="${item.dashed ? '5 4' : 'none'}" opacity="${item.dashed ? '.9' : '1'}" vector-effect="non-scaling-stroke"/>`).join('');
   }).join('');
   const grid = [0,.25,.5,.75,1].map(ratio => {
     const gy = top + ratio * (height - top - bottom); const value = maximum - ratio * (maximum - minimum);
     return `<line x1="${left}" y1="${gy}" x2="${width-right}" y2="${gy}" class="grid-line"/><text x="${left-7}" y="${gy+3}" class="axis-label" text-anchor="end">${Math.round(value)}</text>`;
   }).join('');
   const timeLabel = timestamp => new Date(timestamp).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-  const legend = available.map((item,index) => `<span><i style="background:${chartColors[index % chartColors.length]}"></i>${escapeHtml(item.name)}</span>`).join('');
+  const legend = available.map((item,index) => { const color = item.color || chartColors[index % chartColors.length]; return `<span><i style="${item.dashed ? `background:transparent;border:1px dashed ${color}` : `background:${color}`}" ></i>${escapeHtml(item.name)}</span>`; }).join('');
   return `<section class="history-chart"><div class="chart-title"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(unit)}</span></div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)} history">${grid}${lines}<text x="${left}" y="${height-7}" class="axis-label">${escapeHtml(timeLabel(first))}</text><text x="${width-right}" y="${height-7}" class="axis-label" text-anchor="end">${escapeHtml(timeLabel(last))}</text></svg><div class="chart-legend">${legend}</div></section>`;
 }
 
-function mapSeries(points, field) {
-  const names = [...new Set(points.flatMap(point => Object.keys(point[field] || {})))];
-  return names.map(name => ({ name, value: point => point[field]?.[name] }));
+function mapAveragePeakSeries(points, averageField, peakField) {
+  const names = [...new Set(points.flatMap(point => [...Object.keys(point[averageField] || {}), ...Object.keys(point[peakField] || {})]))];
+  return names.flatMap((name, index) => {
+    const color = chartColors[index % chartColors.length];
+    return [
+      { name:`${name} AVG`, color, value:point => point[averageField]?.[name] },
+      { name:`${name} PEAK`, color, dashed:true, value:point => point[peakField]?.[name] }
+    ];
+  });
 }
 
 function renderHistory(history) {
@@ -224,7 +231,17 @@ function renderHistory(history) {
     return;
   }
   const availability = Math.round(points.reduce((sum, point) => sum + point.onlinePercent, 0) / points.length * 10) / 10;
-  target.innerHTML = `<div class="history-meta"><span>${points.length} chart points</span><span>${availability}% average availability</span></div>${historyChart('Temperature','°C',points,mapSeries(points,'temperatures'))}${historyChart('Fan speed','RPM',points,mapSeries(points,'fans'))}${historyChart('Fan control index','control demand',points,[{name:'FSC index',value:point=>point.fsc}])}`;
+  const utilization = [
+    { name:'CPU AVG', color:chartColors[0], value:point=>point.cpu },
+    { name:'CPU PEAK', color:chartColors[0], dashed:true, value:point=>point.cpuPeak },
+    { name:'Memory AVG', color:chartColors[1], value:point=>point.memory },
+    { name:'Memory PEAK', color:chartColors[1], dashed:true, value:point=>point.memoryPeak }
+  ];
+  const fsc = [
+    { name:'FSC AVG', color:chartColors[0], value:point=>point.fsc },
+    { name:'FSC PEAK', color:chartColors[0], dashed:true, value:point=>point.fscPeak }
+  ];
+  target.innerHTML = `<div class="history-meta"><span>${points.length} chart points · AVG solid · PEAK dashed</span><span>${availability}% average availability</span></div>${historyChart('Utilization','%',points,utilization)}${historyChart('Temperature','°C',points,mapAveragePeakSeries(points,'temperatures','temperaturePeaks'))}${historyChart('Fan speed','RPM',points,mapAveragePeakSeries(points,'fans','fanPeaks'))}${historyChart('Fan control index','control demand',points,fsc)}`;
 }
 
 async function loadHistory(id, range = '24h') {
