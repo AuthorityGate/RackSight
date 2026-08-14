@@ -52,12 +52,14 @@ Alert settings:
   "enabled": true,
   "thresholdC": 85,
   "durationMinutes": 5,
+  "fanAlertsEnabled": true,
+  "fanFailureDurationMinutes": 2,
   "cooldownMinutes": 30,
   "browserNotifications": true
 }
 ```
 
-Thresholds apply to physical temperature sensors. Synthetic values such as ASRock `FSC_INDEX` are excluded.
+Thresholds apply to physical temperature sensors. Synthetic values such as ASRock `FSC_INDEX` are excluded. Fan monitoring learns connected fans and detects sustained zero RPM, disappearance, unavailable readings, or unhealthy Redfish status without alerting on unused headers.
 
 ## SMTP configuration
 

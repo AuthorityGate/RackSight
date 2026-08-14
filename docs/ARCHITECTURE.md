@@ -43,6 +43,7 @@ RackSight caches a successful collection briefly so simultaneous UI, history, an
 | `smtp.enc.json` | SMTP configuration and password | AES-256-GCM encrypted. |
 | `alert-settings.json` | Non-secret threshold and notification preferences | Plain JSON. |
 | `alert-state.json` | Pending and firing alert state | Plain JSON. |
+| `fan-state.json` | Learned connected-fan baselines | Plain JSON. |
 | `alert-events.jsonl` | Fired and recovery event journal | Plain JSONL. |
 | `history/<id>.jsonl` | Compact telemetry snapshots | Plain JSONL, retained for 31 days. |
 

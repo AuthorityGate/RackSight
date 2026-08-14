@@ -156,7 +156,7 @@ async function monitorAlerts(baseUrl) {
       const previous = notifiedAt.get(alert.id) || 0;
       if (now - previous < Number(settings.cooldownMinutes || 30) * 60000) continue;
       if (Notification.isSupported()) {
-        const notification = new Notification({ title:`High temperature · ${alert.serverName}`, body:`${alert.sensor} is ${alert.valueC}°C (threshold ${alert.thresholdC}°C)`, icon:iconPath, urgency:'critical' });
+        const notification = new Notification({ title:alert.type === 'fan' ? `Fan failure · ${alert.serverName}` : `High temperature · ${alert.serverName}`, body:alert.type === 'fan' ? `${alert.sensor}: ${alert.reason} (${alert.valueRpm ?? 'unavailable'} RPM)` : `${alert.sensor} is ${alert.valueC}°C (threshold ${alert.thresholdC}°C)`, icon:iconPath, urgency:'critical' });
         notification.on('click', showWindow);
         notification.show();
       }

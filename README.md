@@ -3,7 +3,7 @@
 An AuthorityGate project
 Copyright (c) 2026 AuthorityGate
 
-[![Release](https://img.shields.io/badge/release-1.1.5-35d0d0)](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.5)
+[![Release](https://img.shields.io/badge/release-1.1.6-35d0d0)](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.6)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8b7cf6.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Node.js-4d9bea)](#installation)
 [![Redfish](https://img.shields.io/badge/management-DMTF%20Redfish-e9ad58)](COMPATIBILITY.md)
@@ -23,6 +23,7 @@ RackSight is a local-first hardware monitoring and alerting dashboard for server
 - Boot, BIOS, and BMC network settings
 - Persistent 1-hour, 4-hour, 24-hour, 7-day, and 30-day charts
 - Configurable sustained-temperature alerts
+- Persistent fan-failure alerts that ignore unused headers
 - Browser, native Windows, and encrypted SMTP notifications
 
 RackSight reads BMC data; it does not change BIOS, boot, fan-control, or firmware settings.
@@ -46,9 +47,9 @@ See the [compatibility matrix](COMPATIBILITY.md) for model families, test status
 
 ### Windows desktop application
 
-Download the signed installer from [GitHub Releases](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.5):
+Download the signed installer from [GitHub Releases](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.6):
 
-- `RackSight-Setup-1.1.5-x64.exe` — guided system-wide installation to `C:\Program Files\AuthorityGate\RackSight`
+- `RackSight-Setup-1.1.6-x64.exe` — guided system-wide installation to `C:\Program Files\AuthorityGate\RackSight`
 
 Both files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign. Verify the signature before running the application. See the complete [Windows installation guide](docs/INSTALL-WINDOWS.md).
 

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
+const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, fanFailureReason, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
 
 test('normalizes BMC hostnames and addresses', () => {
   assert.equal(normalizeBaseUrl('bmc01.example.com'), 'https://bmc01.example.com');
@@ -121,8 +121,19 @@ test('accepts standard and expanded Redfish sensor shapes', () => {
   assert.equal(sensors.find(item => item.Name === 'Fan 1').Reading, 4200);
 });
 
+test('detects failures only for present or previously connected fans', () => {
+  assert.equal(fanFailureReason({ value:0, state:'Enabled', health:'OK' }), 'speed is 0 RPM');
+  assert.equal(fanFailureReason({ value:null, state:'Absent', health:'Unknown' }), null);
+  assert.equal(fanFailureReason({ value:null, state:'Absent', health:'Unknown' }, true), 'state is Absent');
+  assert.equal(fanFailureReason({ value:3000, state:'Enabled', health:'Critical' }, true), 'health is Critical');
+  assert.equal(fanFailureReason({ value:3000, state:'Enabled', health:'OK' }, true), null);
+});
+
 test('validates alert and SMTP settings', () => {
-  assert.equal(validateAlertSettings({ thresholdC:80, durationMinutes:5, cooldownMinutes:30 }).thresholdC, 80);
+  const alerts = validateAlertSettings({ thresholdC:80, durationMinutes:5, cooldownMinutes:30 });
+  assert.equal(alerts.thresholdC, 80);
+  assert.equal(alerts.fanAlertsEnabled, true);
+  assert.equal(alerts.fanFailureDurationMinutes, 2);
   assert.throws(() => validateAlertSettings({ thresholdC:150, durationMinutes:5, cooldownMinutes:30 }), /threshold/);
   const smtp = validateSmtpSettings({ enabled:true, host:'smtp.example.com', port:587, secure:false, username:'user', password:'secret', from:'rack@example.com', to:'ops@example.com' });
   assert.equal(smtp.port, 587);

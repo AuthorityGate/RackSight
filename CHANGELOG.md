@@ -2,6 +2,14 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.6] - 2026-08-14
+
+### Added
+
+- Persistent fan-failure detection for known connected fans, covering zero RPM, explicit disappearance, unavailable readings, and Redfish warning/critical health.
+- Configurable fan-failure confirmation duration with pending, firing, recovery, browser, native Windows, SMTP, and event-history notifications.
+- Connected-fan baselines persist in `fan-state.json` so unused headers remain ignored while a fan that later disappears is detected.
+
 ## [1.1.5] - 2026-08-14
 
 ### Changed

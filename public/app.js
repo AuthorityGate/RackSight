@@ -110,10 +110,10 @@ function renderSettingsView() {
     const network = item?.settings?.network?.flatMap(net => net.ipv4 || []).filter(Boolean).join(', ') || '—';
     return `<div class="connection-row"><div class="connection-name"><span class="server-glyph">▰</span><div><strong>${escapeHtml(server.name)}</strong><small>${escapeHtml(server.address)}</small></div></div><div><small>ACCOUNT</small><strong>${escapeHtml(server.username)}</strong></div><div><small>BMC ADDRESS</small><strong>${escapeHtml(network)}</strong></div><div><span class="health ${status.css}">${escapeHtml(status.label)}</span></div><div class="connection-actions"><button class="icon-btn" data-connect="${server.id}">Connect now</button><button class="icon-btn" data-open="${server.id}">Details</button><button class="icon-btn" data-edit="${server.id}">Edit</button><button class="icon-btn danger" data-delete="${server.id}">Delete</button></div></div>`;
   }).join('');
-  const alert = state.alertSettings || { enabled:true, thresholdC:85, durationMinutes:5, cooldownMinutes:30, browserNotifications:true };
+  const alert = state.alertSettings || { enabled:true, thresholdC:85, durationMinutes:5, fanAlertsEnabled:true, fanFailureDurationMinutes:2, cooldownMinutes:30, browserNotifications:true };
   const smtp = state.smtpSettings || { enabled:false, host:'', port:587, secure:false, username:'', from:'', to:'', passwordConfigured:false };
   const firing = state.alerts.filter(item => item.status === 'firing');
-  const alertRows = state.alerts.length ? state.alerts.map(item => `<div class="active-alert ${item.status}"><strong>${escapeHtml(item.serverName)} · ${escapeHtml(item.sensor)}</strong><span>${escapeHtml(item.valueC)}°C / ${escapeHtml(item.thresholdC)}°C · ${escapeHtml(item.status)}</span></div>`).join('') : '<p class="muted">No pending or active temperature alerts.</p>';
+  const alertRows = state.alerts.length ? state.alerts.map(item => `<div class="active-alert ${item.status}"><strong>${escapeHtml(item.serverName)} · ${escapeHtml(item.sensor)}</strong><span>${item.type === 'fan' ? `${escapeHtml(item.valueRpm ?? '—')} RPM · ${escapeHtml(item.reason || 'Fan failure')}` : `${escapeHtml(item.valueC)}°C / ${escapeHtml(item.thresholdC)}°C`} · ${escapeHtml(item.status)}</span></div>`).join('') : '<p class="muted">No pending or active hardware alerts.</p>';
   const update = state.updateState;
   const checkedAt = update.checkedAt ? new Date(update.checkedAt).toLocaleString() : 'Not checked yet';
   const updatesCard = `<section class="settings-card update-card"><div><h2>Application updates</h2><p>${escapeHtml(updateStatusText(update))}</p><small>Installed version ${escapeHtml(update.currentVersion || '—')} · Last check ${escapeHtml(checkedAt)}</small></div><button type="button" class="button primary" id="checkForUpdates" ${!update.supported || update.status === 'checking' ? 'disabled' : ''}>${update.status === 'checking' ? 'Checking…' : 'Check for updates'}</button></section>`;
@@ -122,6 +122,11 @@ function renderSettingsView() {
 
 function renderSecondaryView() {
   $('#secondaryView').innerHTML = state.view === 'hardware' ? renderHardwareView() : renderSettingsView();
+  if (state.view === 'settings') {
+    const form = $('#alertSettingsForm'); const alert = state.alertSettings || {}; const browserRow = $('#browserNotifications')?.closest('label');
+    form?.closest('section')?.querySelector('h2')?.replaceChildren('Hardware alerts');
+    browserRow?.insertAdjacentHTML('beforebegin', `<label class="toggle-row"><span><strong>Fan failure alerts</strong><small>Detect zero RPM, disappearance, unavailable readings, and unhealthy status only for known connected fans</small></span><input type="checkbox" id="fanAlertsEnabled" ${alert.fanAlertsEnabled !== false ? 'checked' : ''}></label><label>Fan failure must remain for<input type="number" id="fanFailureDuration" min="1" max="1440" value="${escapeHtml(alert.fanFailureDurationMinutes ?? 2)}"><small>minutes</small></label>`);
+  }
 }
 
 function setView(view) {
@@ -161,7 +166,7 @@ async function pollAlerts() {
     if (state.alertSettings?.browserNotifications && 'Notification' in window && Notification.permission === 'granted') {
       for (const alert of state.alerts.filter(item => item.status === 'firing')) {
         if (state.notifiedAlerts.has(alert.id)) continue;
-        new Notification(`High temperature: ${alert.serverName}`, { body:`${alert.sensor} is ${alert.valueC}°C (threshold ${alert.thresholdC}°C)`, tag:alert.id });
+        new Notification(alert.type === 'fan' ? `Fan failure: ${alert.serverName}` : `High temperature: ${alert.serverName}`, { body:alert.type === 'fan' ? `${alert.sensor}: ${alert.reason} (${alert.valueRpm ?? 'unavailable'} RPM)` : `${alert.sensor} is ${alert.valueC}°C (threshold ${alert.thresholdC}°C)`, tag:alert.id });
         state.notifiedAlerts.add(alert.id);
       }
     }
@@ -349,7 +354,7 @@ document.addEventListener('submit', async event => {
   if (event.target.id === 'alertSettingsForm') {
     event.preventDefault();
     try {
-      state.alertSettings = await api('/api/alert-settings', { method:'PUT', body:JSON.stringify({ enabled:$('#alertsEnabled').checked, thresholdC:Number($('#alertThreshold').value), durationMinutes:Number($('#alertDuration').value), cooldownMinutes:Number($('#alertCooldown').value), browserNotifications:$('#browserNotifications').checked }) });
+      state.alertSettings = await api('/api/alert-settings', { method:'PUT', body:JSON.stringify({ enabled:$('#alertsEnabled').checked, thresholdC:Number($('#alertThreshold').value), durationMinutes:Number($('#alertDuration').value), fanAlertsEnabled:$('#fanAlertsEnabled').checked, fanFailureDurationMinutes:Number($('#fanFailureDuration').value), cooldownMinutes:Number($('#alertCooldown').value), browserNotifications:$('#browserNotifications').checked }) });
       showToast('Alert rules saved'); renderSecondaryView();
     } catch (error) { showToast(error.message); }
   }

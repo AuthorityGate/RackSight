@@ -18,6 +18,7 @@ const SERVERS_FILE = path.join(DATA_DIR, 'servers.enc.json');
 const ALERT_SETTINGS_FILE = path.join(DATA_DIR, 'alert-settings.json');
 const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
 const ALERT_EVENTS_FILE = path.join(DATA_DIR, 'alert-events.jsonl');
+const FAN_STATE_FILE = path.join(DATA_DIR, 'fan-state.json');
 const SMTP_FILE = path.join(DATA_DIR, 'smtp.enc.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const APP_VERSION = require('./package.json').version;
@@ -36,6 +37,8 @@ const bmcSessionPromises = new Map();
 const lastRecordedAt = new Map();
 let alertStateLoaded = false;
 const activeAlerts = new Map();
+let fanStateLoaded = false;
+const knownFans = new Map();
 
 function historyPollSpacingMs(serverCount, intervalMs = HISTORY_INTERVAL_MS) {
   const count = Math.max(1, Number(serverCount) || 1);
@@ -80,6 +83,8 @@ const DEFAULT_ALERT_SETTINGS = {
   enabled: true,
   thresholdC: 85,
   durationMinutes: 5,
+  fanAlertsEnabled: true,
+  fanFailureDurationMinutes: 2,
   cooldownMinutes: 30,
   browserNotifications: true
 };
@@ -166,10 +171,12 @@ function validateAlertSettings(input) {
   const thresholdC = Number(input.thresholdC);
   const durationMinutes = Number(input.durationMinutes);
   const cooldownMinutes = Number(input.cooldownMinutes);
+  const fanFailureDurationMinutes = Number(input.fanFailureDurationMinutes ?? 2);
   if (!Number.isFinite(thresholdC) || thresholdC < 20 || thresholdC > 120) throw new Error('Temperature threshold must be between 20°C and 120°C.');
   if (!Number.isFinite(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) throw new Error('Alert duration must be between 1 and 1,440 minutes.');
   if (!Number.isFinite(cooldownMinutes) || cooldownMinutes < 1 || cooldownMinutes > 10080) throw new Error('Cooldown must be between 1 minute and 7 days.');
-  return { enabled: input.enabled !== false, thresholdC, durationMinutes, cooldownMinutes, browserNotifications: input.browserNotifications !== false };
+  if (!Number.isFinite(fanFailureDurationMinutes) || fanFailureDurationMinutes < 1 || fanFailureDurationMinutes > 1440) throw new Error('Fan failure duration must be between 1 and 1,440 minutes.');
+  return { enabled: input.enabled !== false, thresholdC, durationMinutes, fanAlertsEnabled: input.fanAlertsEnabled !== false, fanFailureDurationMinutes, cooldownMinutes, browserNotifications: input.browserNotifications !== false };
 }
 
 function writeAlertSettings(settings) {
@@ -191,6 +198,19 @@ function loadAlertState() {
 function saveAlertState() {
   ensureStorage();
   fs.writeFileSync(ALERT_STATE_FILE, JSON.stringify([...activeAlerts.values()], null, 2), { mode: 0o600 });
+}
+
+function loadFanState() {
+  if (fanStateLoaded) return;
+  fanStateLoaded = true;
+  if (!fs.existsSync(FAN_STATE_FILE)) return;
+  try { for (const fan of JSON.parse(fs.readFileSync(FAN_STATE_FILE, 'utf8'))) knownFans.set(fan.key, fan); }
+  catch { /* Relearn connected fans if a prior baseline file is incomplete. */ }
+}
+
+function saveFanState() {
+  ensureStorage();
+  fs.writeFileSync(FAN_STATE_FILE, JSON.stringify([...knownFans.values()], null, 2), { mode: 0o600 });
 }
 
 function appendAlertEvent(event) {
@@ -248,6 +268,15 @@ async function sendSmtpMessage(subject, text, force = false) {
 }
 
 function sendAlertEmail(alert, event) {
+  if (alert.type === 'fan') {
+    const state = event === 'resolved' ? 'FAN RECOVERED' : 'FAN FAILURE';
+    const subject = `[RackSight] ${state}: ${alert.serverName} ${alert.sensor}`;
+    const text = event === 'resolved'
+      ? `${alert.serverName} fan ${alert.sensor} has recovered.\n\nCurrent speed: ${alert.valueRpm} RPM\nRecovered: ${new Date().toLocaleString()}\n`
+      : `${alert.serverName} reported a fan failure for the configured duration.\n\nFan: ${alert.sensor}\nReason: ${alert.reason}\nCurrent speed: ${alert.valueRpm ?? 'Unavailable'} RPM\nFailure observed since: ${new Date(alert.since).toLocaleString()}\n`;
+    sendSmtpMessage(subject, text).catch(error => console.error(`SMTP alert failed: ${error.message}`));
+    return;
+  }
   const state = event === 'resolved' ? 'RECOVERED' : 'HIGH TEMPERATURE';
   const subject = `[RackSight] ${state}: ${alert.serverName} ${alert.sensor}`;
   const text = event === 'resolved'
@@ -617,7 +646,7 @@ function evaluateTemperatureAlerts(server, data, now = Date.now()) {
   loadAlertState();
   const settings = readAlertSettings();
   if (!settings.enabled) {
-    for (const [key, alert] of activeAlerts) if (alert.serverId === server.id) activeAlerts.delete(key);
+    for (const [key, alert] of activeAlerts) if (alert.serverId === server.id && alert.type !== 'fan') activeAlerts.delete(key);
     saveAlertState();
     return;
   }
@@ -661,9 +690,54 @@ function evaluateTemperatureAlerts(server, data, now = Date.now()) {
   // Resolve sensors that disappeared from a successful poll rather than
   // leaving stale alerts active indefinitely.
   for (const [key, alert] of activeAlerts) {
-    if (alert.serverId === server.id && !seen.has(key)) activeAlerts.delete(key);
+    if (alert.serverId === server.id && alert.type !== 'fan' && !seen.has(key)) activeAlerts.delete(key);
   }
   saveAlertState();
+}
+
+function fanFailureReason(fan, wasKnown = false) {
+  const state = String(fan?.state || '').toLowerCase();
+  const health = String(fan?.health || '').toLowerCase();
+  const value = fan?.value == null ? null : Number(fan.value);
+  if (health && !['ok', 'unknown'].includes(health)) return `health is ${fan.health}`;
+  if (wasKnown && ['absent', 'disabled', 'unavailable'].includes(state)) return `state is ${fan.state}`;
+  if (!['absent', 'disabled'].includes(state) && Number.isFinite(value) && value <= 0) return 'speed is 0 RPM';
+  if (wasKnown && !Number.isFinite(value)) return 'RPM reading is unavailable';
+  return null;
+}
+
+function evaluateFanAlerts(server, data, now = Date.now()) {
+  loadAlertState(); loadFanState();
+  const settings = readAlertSettings();
+  if (!settings.fanAlertsEnabled) {
+    for (const [key, alert] of activeAlerts) if (alert.serverId === server.id && alert.type === 'fan') activeAlerts.delete(key);
+    saveAlertState(); return;
+  }
+  for (const fan of data.fans || []) {
+    const key = `${server.id}:fan:${fan.name}`;
+    const wasKnown = knownFans.has(key);
+    const value = fan.value == null ? null : Number(fan.value);
+    const state = String(fan.state || '').toLowerCase();
+    const health = String(fan.health || '').toLowerCase();
+    const explicitlyPresent = !['absent', 'disabled', 'unavailable'].includes(state) && (Number.isFinite(value) || !['', 'ok', 'unknown'].includes(health));
+    if (Number.isFinite(value) && value > 0 && state !== 'absent') knownFans.set(key, { key, serverId:server.id, sensor:fan.name, lastHealthyRpm:value, lastSeen:now });
+    if (!wasKnown && !explicitlyPresent) continue;
+    const reason = fanFailureReason(fan, wasKnown);
+    const existing = activeAlerts.get(key);
+    if (reason) {
+      const alert = existing || { key, id:crypto.randomUUID(), type:'fan', serverId:server.id, serverName:server.name, sensor:fan.name, since:now, status:'pending' };
+      alert.valueRpm = Number.isFinite(value) ? value : null; alert.reason = reason; alert.lastSeen = now;
+      if (now - alert.since >= settings.fanFailureDurationMinutes * 60000 && alert.status !== 'firing') {
+        alert.status = 'firing'; alert.firedAt = now;
+        appendAlertEvent({ ...alert, event:'fired', t:now }); sendAlertEmail(alert, 'fired');
+      }
+      activeAlerts.set(key, alert);
+    } else if (existing) {
+      if (existing.status === 'firing') { const resolved = { ...existing, valueRpm:value }; appendAlertEvent({ ...resolved, event:'resolved', t:now }); sendAlertEmail(resolved, 'resolved'); }
+      activeAlerts.delete(key);
+    }
+  }
+  saveFanState(); saveAlertState();
 }
 
 function getActiveAlerts() {
@@ -696,6 +770,7 @@ async function pollServer(server, force = false, startup = false) {
       recentData.set(server.id, { time: Date.now(), data });
       appendHistory(server.id, historySnapshot(data));
       evaluateTemperatureAlerts(server, data);
+      evaluateFanAlerts(server, data);
       return data;
     })
     .catch(error => {
@@ -973,4 +1048,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };
+module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, fanFailureReason, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };
