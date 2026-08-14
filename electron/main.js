@@ -12,6 +12,7 @@ let alertTimer;
 let isQuitting = false;
 let updatePromptOpen = false;
 let updateCheckPromise = null;
+let updateDownloadPromise = null;
 const notifiedAt = new Map();
 const iconPath = path.join(__dirname, '..', 'public', 'racksight-icon.png');
 let updateState = { supported:false, status:'unavailable', currentVersion:app.getVersion(), availableVersion:null, checkedAt:null, error:null };
@@ -88,7 +89,8 @@ function configureUpdates() {
   }
   setUpdateState({ supported:true, status:'idle', currentVersion:app.getVersion(), error:null });
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.autoRunAppAfterInstall = true;
   autoUpdater.on('checking-for-update', () => setUpdateState({ status:'checking', error:null }));
   autoUpdater.on('error', error => setUpdateState({ status:'error', checkedAt:new Date().toISOString(), error:updateErrorMessage(error) }));
   autoUpdater.on('update-not-available', info => setUpdateState({ status:'current', availableVersion:info?.version || null, checkedAt:new Date().toISOString(), error:null }));
@@ -108,13 +110,21 @@ function configureUpdates() {
     } else if (result.response === 0) {
       try {
         setUpdateState({ status:'downloading' });
-        await autoUpdater.downloadUpdate();
+        updateDownloadPromise = autoUpdater.downloadUpdate();
+        await updateDownloadPromise;
       } catch (error) {
         setUpdateState({ status:'error', error:updateErrorMessage(error) });
       }
     }
   });
   autoUpdater.on('update-downloaded', async info => {
+    try {
+      const downloadedFiles = updateDownloadPromise ? await updateDownloadPromise : [];
+      if (downloadedFiles.length && !downloadedFiles.some(file => fs.existsSync(file))) throw new Error('The downloaded update file could not be verified on disk.');
+    } catch (error) {
+      setUpdateState({ status:'error', error:updateErrorMessage(error) });
+      return;
+    } finally { updateDownloadPromise = null; }
     setUpdateState({ status:'downloaded', availableVersion:info.version, error:null });
     try { backupPersistentData(info.version); }
     catch (error) {
@@ -128,8 +138,14 @@ function configureUpdates() {
       buttons:['Restart and install', 'Install when I quit'], defaultId:0, cancelId:1, icon:iconPath
     });
     if (result.response === 0) {
+      setUpdateState({ status:'installing', availableVersion:info.version, error:null });
       isQuitting = true;
-      autoUpdater.quitAndInstall(false, true);
+      // Use the silent NSIS update path so custom installer pages cannot block
+      // behind the closing Electron process. The signed installer relaunches
+      // RackSight after replacement completes.
+      setTimeout(() => autoUpdater.quitAndInstall(true, true), 250);
+    } else {
+      autoUpdater.autoInstallOnAppQuit = true;
     }
   });
   setTimeout(() => checkForUpdates(), 4000);

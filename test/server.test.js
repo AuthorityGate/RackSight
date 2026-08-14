@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, fanFailureReason, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
 
 test('normalizes BMC hostnames and addresses', () => {
@@ -138,4 +140,13 @@ test('validates alert and SMTP settings', () => {
   const smtp = validateSmtpSettings({ enabled:true, host:'smtp.example.com', port:587, secure:false, username:'user', password:'secret', from:'rack@example.com', to:'ops@example.com' });
   assert.equal(smtp.port, 587);
   assert.equal(smtp.to, 'ops@example.com');
+});
+
+test('desktop updater completes the download before silent forced installation', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+  assert.match(source, /updateDownloadPromise = autoUpdater\.downloadUpdate\(\)/);
+  assert.match(source, /await updateDownloadPromise/);
+  assert.match(source, /downloadedFiles\.some\(file => fs\.existsSync\(file\)\)/);
+  assert.match(source, /autoUpdater\.quitAndInstall\(true, true\)/);
+  assert.match(source, /autoUpdater\.autoRunAppAfterInstall = true/);
 });

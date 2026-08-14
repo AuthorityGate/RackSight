@@ -2,6 +2,14 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.9] - 2026-08-14
+
+### Fixed
+
+- The desktop updater now waits for the complete downloaded installer to exist on disk before offering installation.
+- **Restart and install** uses the silent signed NSIS update path, avoids hidden installer pages, and forces RackSight to relaunch after replacement.
+- Automatic installation on ordinary app quit remains disabled until the user explicitly chooses **Install when I quit**.
+
 ## [1.1.8] - 2026-08-14
 
 ### Added

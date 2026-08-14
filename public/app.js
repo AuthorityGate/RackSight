@@ -42,6 +42,7 @@ function updateStatusText(update) {
     available:`RackSight ${update.availableVersion || ''} is available.`,
     downloading:`Downloading RackSight ${update.availableVersion || ''}…`,
     downloaded:`RackSight ${update.availableVersion || ''} is ready to install.`,
+    installing:`Installing RackSight ${update.availableVersion || ''} and restarting…`,
     error:`Update check failed: ${update.error || 'The release service could not be reached.'}`,
     unavailable:'Update checks are available in the installed Windows desktop application.'
   };
