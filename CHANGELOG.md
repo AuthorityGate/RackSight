@@ -2,6 +2,14 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.3] - 2026-08-14
+
+### Fixed
+
+- Saving an edited BMC address or credential now clears the prior authentication cooldown and tests the new values immediately.
+- Added **Connect now** actions to offline server cards and every BMC connection in Settings.
+- Redfish polling now reuses standards-based session tokens instead of submitting Basic credentials for every hardware resource request, reducing BMC authentication throttling and lockouts. Devices that explicitly do not implement SessionService retain a Basic-authentication fallback.
+
 ## [1.1.2] - 2026-08-14
 
 ### Added

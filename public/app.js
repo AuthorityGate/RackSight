@@ -108,7 +108,7 @@ function renderSettingsView() {
   const rows = state.servers.map(server => {
     const item = state.data.get(server.id); const status = serverStatus(server);
     const network = item?.settings?.network?.flatMap(net => net.ipv4 || []).filter(Boolean).join(', ') || '—';
-    return `<div class="connection-row"><div class="connection-name"><span class="server-glyph">▰</span><div><strong>${escapeHtml(server.name)}</strong><small>${escapeHtml(server.address)}</small></div></div><div><small>ACCOUNT</small><strong>${escapeHtml(server.username)}</strong></div><div><small>BMC ADDRESS</small><strong>${escapeHtml(network)}</strong></div><div><span class="health ${status.css}">${escapeHtml(status.label)}</span></div><div class="connection-actions"><button class="icon-btn" data-open="${server.id}">Details</button><button class="icon-btn" data-edit="${server.id}">Edit</button><button class="icon-btn danger" data-delete="${server.id}">Delete</button></div></div>`;
+    return `<div class="connection-row"><div class="connection-name"><span class="server-glyph">▰</span><div><strong>${escapeHtml(server.name)}</strong><small>${escapeHtml(server.address)}</small></div></div><div><small>ACCOUNT</small><strong>${escapeHtml(server.username)}</strong></div><div><small>BMC ADDRESS</small><strong>${escapeHtml(network)}</strong></div><div><span class="health ${status.css}">${escapeHtml(status.label)}</span></div><div class="connection-actions"><button class="icon-btn" data-connect="${server.id}">Connect now</button><button class="icon-btn" data-open="${server.id}">Details</button><button class="icon-btn" data-edit="${server.id}">Edit</button><button class="icon-btn danger" data-delete="${server.id}">Delete</button></div></div>`;
   }).join('');
   const alert = state.alertSettings || { enabled:true, thresholdC:85, durationMinutes:5, cooldownMinutes:30, browserNotifications:true };
   const smtp = state.smtpSettings || { enabled:false, host:'', port:587, secure:false, username:'', from:'', to:'', passwordConfigured:false };
@@ -134,7 +134,7 @@ function setView(view) {
 
 function renderCard(server, item) {
   if (!item) return `<article class="server-card loading-card"><div><div class="spinner"></div><p>Connecting to ${escapeHtml(server.name)}…</p></div></article>`;
-  if (item.error) return `<article class="server-card" style="--glow:var(--red)"><button class="card-open" data-open="${server.id}" aria-label="Open details"></button><div class="card-head"><div class="server-title"><span class="server-glyph">▰</span><div><h3>${escapeHtml(server.name)}</h3><p>${escapeHtml(server.address)}</p></div></div><span class="health error">Offline</span></div><div class="error-message">${escapeHtml(item.error)}</div><div class="card-footer"><span>Connection failed</span><div class="card-actions"><button class="icon-btn" data-edit="${server.id}">Edit</button><button class="icon-btn" data-delete="${server.id}">Delete</button></div></div></article>`;
+  if (item.error) return `<article class="server-card" style="--glow:var(--red)"><button class="card-open" data-open="${server.id}" aria-label="Open details"></button><div class="card-head"><div class="server-title"><span class="server-glyph">▰</span><div><h3>${escapeHtml(server.name)}</h3><p>${escapeHtml(server.address)}</p></div></div><span class="health error">Offline</span></div><div class="error-message">${escapeHtml(item.error)}</div><div class="card-footer"><span>Connection failed</span><div class="card-actions"><button class="icon-btn" data-connect="${server.id}">Connect now</button><button class="icon-btn" data-edit="${server.id}">Edit</button><button class="icon-btn" data-delete="${server.id}">Delete</button></div></div></article>`;
   const temp = maxTemperature(item);
   const health = item.overallHealth || 'Unknown';
   return `<article class="server-card" style="--glow:${healthClass(health) ? 'var(--amber)' : 'var(--green)'}"><button class="card-open" data-open="${server.id}" aria-label="Open details"></button><div class="card-head"><div class="server-title"><span class="server-glyph">▰</span><div><h3>${escapeHtml(server.name)}</h3><p>${escapeHtml(item.identity.model || server.address)}</p></div></div><span class="health ${healthClass(health)}">${escapeHtml(health)}</span></div><div class="metrics"><div class="metric"><small>CPU LOAD</small><strong>${formatPercent(item.utilization.cpuPercent)}</strong></div><div class="metric"><small>MEMORY</small><strong>${item.utilization.memoryPercent == null ? `${item.memory.totalGiB || '—'} GB` : formatPercent(item.utilization.memoryPercent)}</strong></div><div class="metric"><small>MAX TEMP</small><strong>${temp == null ? 'N/A' : `${Math.round(temp)}°C`}</strong><div class="temp-bar"><i style="width:${Math.min(100,temp || 0)}%"></i></div></div></div><div class="card-footer"><span>${escapeHtml(item.powerState)} · ${item.responseMs}ms</span><div class="card-actions"><button class="icon-btn" data-edit="${server.id}">Edit</button><button class="icon-btn" data-delete="${server.id}">Delete</button></div></div></article>`;
@@ -302,6 +302,18 @@ document.addEventListener('click', async event => {
   if (event.target.closest('[data-close]')) closeModal();
   if (event.target.closest('[data-detail-close]')) $('#detailPanel').classList.add('hidden');
   const edit = event.target.closest('[data-edit]'); if (edit) openModal(state.servers.find(server => server.id === edit.dataset.edit));
+  const connect = event.target.closest('[data-connect]');
+  if (connect) {
+    const id = connect.dataset.connect; connect.disabled = true; connect.textContent = 'Connecting…';
+    try {
+      state.data.set(id, await api(`/api/servers/${id}/connect`, { method:'POST', body:'{}' }));
+      showToast('Server connected');
+    } catch (error) {
+      const server = state.servers.find(item => item.id === id);
+      state.data.set(id, { error:error.message, server });
+      showToast(error.message);
+    } finally { render(); }
+  }
   const open = event.target.closest('[data-open]'); if (open) openDetails(open.dataset.open);
   const range = event.target.closest('[data-history-range]'); if (range && state.detailServerId) loadHistory(state.detailServerId, range.dataset.historyRange);
   if (event.target.closest('#enableBrowserNotifications')) {
@@ -354,7 +366,7 @@ $('#serverForm').addEventListener('submit', async event => {
     const record = await api('/api/servers', { method:'POST', body:JSON.stringify({ id:$('#serverId').value || undefined, name:$('#name').value, address:$('#address').value, username:$('#username').value, password:$('#password').value }) });
     const index = state.servers.findIndex(server => server.id === record.id); if (index >= 0) state.servers[index] = record; else state.servers.push(record);
     state.data.delete(record.id); closeModal(); render(); showToast('Server saved');
-    try { state.data.set(record.id, await api(`/api/servers/${record.id}/data`)); } catch (error) { state.data.set(record.id,{ error:error.message,server:record }); } render();
+    try { state.data.set(record.id, await api(`/api/servers/${record.id}/connect`, { method:'POST', body:'{}' })); } catch (error) { state.data.set(record.id,{ error:error.message,server:record }); } render();
   } catch (error) { $('#formError').textContent = error.message; $('#formError').classList.remove('hidden'); }
   finally { submit.disabled = false; }
 });

@@ -1,6 +1,6 @@
 # Installing RackSight on Windows
 
-RackSight 1.1.2 is distributed as a Windows x64 installer. The release file is Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
+RackSight 1.1.3 is distributed as a Windows x64 installer. The release file is Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
 
 ## Installer
 
@@ -23,7 +23,7 @@ Setup attempts one registration with `https://license.authoritygate.com` contain
 For managed silent deployment, supply the required email. Company is detected automatically when Windows registration or domain information is available; `/RACKSIGHTCOMPANY` remains an explicit override and is required only when detection returns no value:
 
 ```powershell
-.\RackSight-Setup-1.1.2-x64.exe /S /RACKSIGHTEMAIL=user@example.com
+.\RackSight-Setup-1.1.3-x64.exe /S /RACKSIGHTEMAIL=user@example.com
 ```
 
 ## Verify the signature
@@ -31,7 +31,7 @@ For managed silent deployment, supply the required email. Company is detected au
 In PowerShell:
 
 ```powershell
-Get-AuthenticodeSignature .\RackSight-Setup-1.1.2-x64.exe |
+Get-AuthenticodeSignature .\RackSight-Setup-1.1.3-x64.exe |
   Select-Object Status, StatusMessage, SignerCertificate
 ```
 
@@ -40,7 +40,7 @@ Get-AuthenticodeSignature .\RackSight-Setup-1.1.2-x64.exe |
 To calculate a checksum:
 
 ```powershell
-Get-FileHash .\RackSight-Setup-1.1.2-x64.exe -Algorithm SHA256
+Get-FileHash .\RackSight-Setup-1.1.3-x64.exe -Algorithm SHA256
 ```
 
 Compare the result with the checksum published in the matching GitHub Release notes.

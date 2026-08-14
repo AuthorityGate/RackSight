@@ -29,6 +29,8 @@ const BMC_BACKOFF_MAX_MS = 30 * 60 * 1000;
 const pollInFlight = new Map();
 const recentData = new Map();
 const bmcBackoffs = new Map();
+const bmcSessions = new Map();
+const bmcSessionPromises = new Map();
 const lastRecordedAt = new Map();
 let alertStateLoaded = false;
 const activeAlerts = new Map();
@@ -217,15 +219,17 @@ function publicServer(server) {
   return { id: server.id, name: server.name, address: server.address, username: server.username };
 }
 
-function requestJson(target, username, password, timeout = POLL_TIMEOUT_MS) {
+function requestJson(target, options = {}, timeout = POLL_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const url = new URL(target);
     const client = url.protocol === 'http:' ? http : https;
+    const body = options.body == null ? null : JSON.stringify(options.body);
     const request = client.request(url, {
-      method: 'GET',
+      method: options.method || 'GET',
       headers: {
         Accept: 'application/json',
-        Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
+        ...(body ? { 'Content-Type':'application/json', 'Content-Length':Buffer.byteLength(body) } : {}),
+        ...(options.headers || {})
       },
       rejectUnauthorized: process.env.ALLOW_SELF_SIGNED === 'false',
       timeout
@@ -238,18 +242,67 @@ function requestJson(target, username, password, timeout = POLL_TIMEOUT_MS) {
       });
       response.on('end', () => {
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          const error = new Error(`BMC returned HTTP ${response.statusCode}.`);
+          let detail = '';
+          try { detail = JSON.parse(body)?.error?.message || ''; } catch { /* Use the status-only error. */ }
+          const error = new Error(`BMC returned HTTP ${response.statusCode}${detail ? `: ${detail}` : ''}.`);
           error.statusCode = response.statusCode;
           return reject(error);
         }
-        try { resolve(body ? JSON.parse(body) : {}); }
+        try { resolve({ data:body ? JSON.parse(body) : {}, headers:response.headers, statusCode:response.statusCode }); }
         catch { reject(new Error('BMC returned an invalid JSON response.')); }
       });
     });
     request.on('timeout', () => request.destroy(new Error(`BMC did not respond within ${timeout / 1000} seconds.`)));
     request.on('error', reject);
+    if (body) request.write(body);
     request.end();
   });
+}
+
+function credentialFingerprint(server) {
+  return crypto.createHash('sha256').update(`${server.address}\0${server.username}\0${server.password}`).digest('hex');
+}
+
+async function createBmcSession(server) {
+  const fingerprint = credentialFingerprint(server);
+  const existing = bmcSessions.get(server.id);
+  if (existing?.fingerprint === fingerprint) return existing;
+  if (bmcSessionPromises.has(server.id)) return bmcSessionPromises.get(server.id);
+  const operation = requestJson(`${server.address}/redfish/v1/SessionService/Sessions`, {
+    method:'POST', body:{ UserName:server.username, Password:server.password }
+  }).then(result => {
+    const token = result.headers['x-auth-token'];
+    if (!token) throw new Error('BMC created a Redfish session without returning an authentication token.');
+    const session = { token:String(token), location:String(result.headers.location || ''), fingerprint };
+    bmcSessions.set(server.id, session);
+    return session;
+  }).catch(error => {
+    // Older implementations may omit SessionService entirely. Retain Basic
+    // authentication only for an explicit unsupported-method response.
+    if ([404, 405, 501].includes(Number(error?.statusCode))) {
+      const session = { token:null, location:'', fingerprint, basicFallback:true };
+      bmcSessions.set(server.id, session);
+      return session;
+    }
+    throw error;
+  }).finally(() => bmcSessionPromises.delete(server.id));
+  bmcSessionPromises.set(server.id, operation);
+  return operation;
+}
+
+async function redfishGet(server, target, retrySession = true) {
+  const session = await createBmcSession(server);
+  const headers = session.basicFallback
+    ? { Authorization:`Basic ${Buffer.from(`${server.username}:${server.password}`).toString('base64')}` }
+    : { 'X-Auth-Token':session.token };
+  try { return (await requestJson(target, { headers })).data; }
+  catch (error) {
+    if (retrySession && !session.basicFallback && error?.statusCode === 401) {
+      bmcSessions.delete(server.id);
+      return redfishGet(server, target, false);
+    }
+    throw error;
+  }
 }
 
 function createLimiter(limit) {
@@ -281,7 +334,7 @@ async function safeGet(server, link) {
   if (!link) return null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const task = () => requestJson(joinRedfish(server.address, link), server.username, server.password);
+      const task = () => redfishGet(server, joinRedfish(server.address, link));
       return await (server._requestLimiter ? server._requestLimiter(task) : task());
     } catch {
       if (attempt === 0) await delay(150);
@@ -339,7 +392,7 @@ async function collectServer(server) {
   // AST2600 BMCs can drop responses when many member resources are requested
   // simultaneously. Bound concurrency and retry transient member failures.
   server._requestLimiter = createLimiter(4);
-  const root = await server._requestLimiter(() => requestJson(`${server.address}/redfish/v1/`, server.username, server.password));
+  const root = await server._requestLimiter(() => redfishGet(server, `${server.address}/redfish/v1/`));
   const [systems, chassis, managers] = await Promise.all([
     getMembers(server, root.Systems?.['@odata.id'] || '/redfish/v1/Systems'),
     getMembers(server, root.Chassis?.['@odata.id'] || '/redfish/v1/Chassis'),
@@ -791,6 +844,11 @@ async function handleApi(request, response, pathname) {
       if (body.password) record.password = String(body.password);
       if (existing) servers.splice(servers.indexOf(existing), 1, record); else servers.push(record);
       writeServers(servers);
+      // A saved address or credential change must be tested immediately. Do not
+      // leave the server trapped behind a cooldown created by the old values.
+      bmcBackoffs.delete(record.id);
+      recentData.delete(record.id);
+      bmcSessions.delete(record.id);
       return json(response, existing ? 200 : 201, publicServer(record));
     }
     if (segments.length === 3 && segments[0] === 'api' && segments[1] === 'servers' && request.method === 'DELETE') {
@@ -798,12 +856,23 @@ async function handleApi(request, response, pathname) {
       const next = servers.filter(item => item.id !== segments[2]);
       if (next.length === servers.length) return json(response, 404, { error: 'Server not found.' });
       writeServers(next);
+      bmcBackoffs.delete(segments[2]);
+      recentData.delete(segments[2]);
+      bmcSessions.delete(segments[2]);
       response.writeHead(204); return response.end();
     }
     if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'servers' && segments[3] === 'data' && request.method === 'GET') {
       const server = readServers().find(item => item.id === segments[2]);
       if (!server) return json(response, 404, { error: 'Server not found.' });
       try { return json(response, 200, await pollServer(server)); }
+      catch (error) { return json(response, 502, { error: error.message, server: publicServer(server), collectedAt: new Date().toISOString() }); }
+    }
+    if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'servers' && segments[3] === 'connect' && request.method === 'POST') {
+      const server = readServers().find(item => item.id === segments[2]);
+      if (!server) return json(response, 404, { error: 'Server not found.' });
+      bmcBackoffs.delete(server.id);
+      recentData.delete(server.id);
+      try { return json(response, 200, await pollServer(server, true)); }
       catch (error) { return json(response, 502, { error: error.message, server: publicServer(server), collectedAt: new Date().toISOString() }); }
     }
     if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'servers' && segments[3] === 'history' && request.method === 'GET') {
@@ -835,4 +904,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp };
+module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };
