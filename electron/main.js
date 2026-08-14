@@ -13,7 +13,7 @@ let isQuitting = false;
 let updatePromptOpen = false;
 let updateCheckPromise = null;
 const notifiedAt = new Map();
-const iconPath = path.join(__dirname, '..', 'Logo', 'racksight-icon.png');
+const iconPath = path.join(__dirname, '..', 'public', 'racksight-icon.png');
 let updateState = { supported:false, status:'unavailable', currentVersion:app.getVersion(), availableVersion:null, checkedAt:null, error:null };
 
 function publicUpdateState() { return { ...updateState }; }

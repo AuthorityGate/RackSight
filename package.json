@@ -1,6 +1,6 @@
 {
   "name": "racksight",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Cross-vendor Redfish hardware monitoring and alerting",
   "author": "AuthorityGate",
@@ -33,7 +33,6 @@
       "server.js",
       "public/**/*",
       "electron/**/*",
-      "Logo/racksight-icon.png",
       "package.json",
       "node_modules/**/*"
     ],

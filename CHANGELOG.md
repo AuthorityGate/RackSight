@@ -2,6 +2,16 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.2] - 2026-08-14
+
+### Added
+
+- Company name is automatically populated from the existing RackSight registration, Windows `RegisteredOrganization`, or the signed-in Windows domain; the installer still allows correction and an explicit deployment override.
+
+### Fixed
+
+- Corrected the packaged Electron icon path that caused RackSight 1.1.1 to exit immediately after installation.
+
 ## [1.1.1] - 2026-08-14
 
 ### Changed

@@ -18,6 +18,16 @@ try {
     $email = [string]$installation.RegistrationEmail
     $company = [string]$installation.RegistrationCompany
     $appVersion = [string]$installation.Version
+    if ([string]::IsNullOrWhiteSpace($company)) {
+        $windowsRegistration = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+        $company = [string]$windowsRegistration.RegisteredOrganization
+    }
+    if ([string]::IsNullOrWhiteSpace($company) -and -not [string]::IsNullOrWhiteSpace($env:USERDNSDOMAIN)) {
+        $company = [string]$env:USERDNSDOMAIN
+    }
+    if (-not [string]::IsNullOrWhiteSpace($company)) {
+        Set-RackSightRegistryValue -Name 'RegistrationCompany' -Value $company.Trim()
+    }
     if ([string]::IsNullOrWhiteSpace($email) -or $email -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$') {
         throw 'The required registration email is missing or invalid.'
     }

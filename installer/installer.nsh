@@ -58,7 +58,7 @@ Function RackSightRegistrationPageCreate
   CreateFont $1 "Segoe UI" 12 700
   SendMessage $0 ${WM_SETFONT} $1 1
 
-  ${NSD_CreateLabel} 0 28u 100% 26u "Enter a company name and email address. RackSight will attempt to send them with this computer's FQDN and the installed app version to AuthorityGate."
+  ${NSD_CreateLabel} 0 28u 100% 26u "Confirm the company name detected from Windows registration and enter an email address. RackSight will send them with this computer's FQDN and app version to AuthorityGate."
   Pop $0
   ${NSD_CreateLabel} 0 58u 28% 12u "Company name"
   Pop $0
@@ -104,6 +104,28 @@ FunctionEnd
   SetRegView 64
   ReadRegStr $RackSightEmail HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationEmail"
   ReadRegStr $RackSightCompany HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationCompany"
+  ${If} $RackSightCompany == ""
+    ReadRegStr $RackSightCompany HKLM "Software\Microsoft\Windows NT\CurrentVersion" "RegisteredOrganization"
+  ${EndIf}
+  ${If} $RackSightCompany == ""
+    ReadEnvStr $R2 "USERDNSDOMAIN"
+    ${If} $R2 != ""
+      StrCpy $RackSightCompany $R2
+    ${EndIf}
+  ${EndIf}
+  ${If} $RackSightCompany == ""
+    ReadEnvStr $R2 "USERDOMAIN"
+    ReadEnvStr $R3 "COMPUTERNAME"
+    ${If} $R2 != ""
+      ${If} $R2 != $R3
+        ${If} $R2 != "WORKGROUP"
+          ${If} $R2 != "AzureAD"
+            StrCpy $RackSightCompany $R2
+          ${EndIf}
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
   ${GetParameters} $R0
   ${GetOptions} $R0 "/RACKSIGHTEMAIL=" $R1
   ${IfNot} ${Errors}

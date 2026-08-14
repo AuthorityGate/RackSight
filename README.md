@@ -3,7 +3,7 @@
 An AuthorityGate project
 Copyright (c) 2026 AuthorityGate
 
-[![Release](https://img.shields.io/badge/release-1.1.1-35d0d0)](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.1)
+[![Release](https://img.shields.io/badge/release-1.1.2-35d0d0)](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.2)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8b7cf6.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Node.js-4d9bea)](#installation)
 [![Redfish](https://img.shields.io/badge/management-DMTF%20Redfish-e9ad58)](COMPATIBILITY.md)
@@ -46,16 +46,15 @@ See the [compatibility matrix](COMPATIBILITY.md) for model families, test status
 
 ### Windows desktop application
 
-Download the signed installer from [GitHub Releases](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.1):
+Download the signed installer from [GitHub Releases](https://github.com/AuthorityGate/RackSight/releases/tag/v1.1.2):
 
-- `RackSight-Setup-1.1.1-x64.exe` — guided system-wide installation to `C:\Program Files\AuthorityGate\RackSight`
-- `RackSight-Portable-1.1.1-x64.exe` — no installation required
+- `RackSight-Setup-1.1.2-x64.exe` — guided system-wide installation to `C:\Program Files\AuthorityGate\RackSight`
 
 Both files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign. Verify the signature before running the application. See the complete [Windows installation guide](docs/INSTALL-WINDOWS.md).
 
 Closing the desktop window keeps RackSight running in the Windows notification area. Use the tray menu to quit and stop monitoring.
 
-The installer requires a company name and email address and makes one best-effort request to `license.authoritygate.com` containing only those values, the computer FQDN, and the installed app version. RackSight has no license key, activation, feature restriction, or ongoing network requirement. If registration cannot be reached, installation continues normally.
+The installer automatically prefills company name from Windows computer registration or domain information, allows correction, requires an email address, and makes one best-effort request to `license.authoritygate.com` containing only those values, the computer FQDN, and the installed app version. RackSight has no license key, activation, feature restriction, or ongoing network requirement. If registration cannot be reached, installation continues normally.
 
 Installed builds check the public GitHub Releases feed at startup. Settings displays the installed version, last check, result, and a **Check for updates** action. When a newer signed release exists, users can upgrade, read its changelog, or defer. Updates preserve application configuration, encrypted credentials, and all retained telemetry history, and RackSight creates a local data backup before installing an update.
 

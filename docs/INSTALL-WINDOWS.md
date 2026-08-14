@@ -1,12 +1,12 @@
 # Installing RackSight on Windows
 
-RackSight 1.1.1 is distributed as a Windows x64 installer and a portable executable. Both release files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
+RackSight 1.1.2 is distributed as a Windows x64 installer. The release file is Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
 
 ## Installer
 
 1. Download `RackSight-Setup-<version>-x64.exe` from the repository's Releases page.
 2. Open **Properties → Digital Signatures** and confirm the signer is `AUTHORITYGATE INC`.
-3. Run the installer, accept the MIT license, and enter the required company name and registration email address.
+3. Run the installer, accept the MIT license, confirm the company name automatically detected from Windows registration or domain information, and enter the required registration email address.
 4. Start RackSight from the Start menu or desktop shortcut.
 5. Select **Add server** and enter the BMC FQDN or IP address, a descriptive name, and BMC credentials.
 
@@ -18,24 +18,20 @@ C:\Program Files\AuthorityGate\RackSight
 
 Application installation values are stored under `HKEY_LOCAL_MACHINE\SOFTWARE\AuthorityGate\RackSight`. Windows also creates its standard Apps & Features uninstall entry.
 
-Setup attempts one registration with `https://license.authoritygate.com` containing only the entered company name and email, the computer FQDN, and installed app version. This is not licensing or activation. If the service is offline or blocked, setup records the skipped attempt locally and continues without restricting RackSight.
+Setup attempts one registration with `https://license.authoritygate.com` containing only the detected or corrected company name and email, the computer FQDN, and installed app version. This is not licensing or activation. If the service is offline or blocked, setup records the skipped attempt locally and continues without restricting RackSight.
 
-For managed silent deployment, supply the required company name and email:
+For managed silent deployment, supply the required email. Company is detected automatically when Windows registration or domain information is available; `/RACKSIGHTCOMPANY` remains an explicit override and is required only when detection returns no value:
 
 ```powershell
-.\RackSight-Setup-1.1.1-x64.exe /S /RACKSIGHTCOMPANY="Example Company" /RACKSIGHTEMAIL=user@example.com
+.\RackSight-Setup-1.1.2-x64.exe /S /RACKSIGHTEMAIL=user@example.com
 ```
-
-## Portable application
-
-Download `RackSight-Portable-<version>-x64.exe` and run it directly. No installation is required. Keep the file in a stable location if you configure automatic startup yourself.
 
 ## Verify the signature
 
 In PowerShell:
 
 ```powershell
-Get-AuthenticodeSignature .\RackSight-Setup-1.1.1-x64.exe |
+Get-AuthenticodeSignature .\RackSight-Setup-1.1.2-x64.exe |
   Select-Object Status, StatusMessage, SignerCertificate
 ```
 
@@ -44,7 +40,7 @@ Get-AuthenticodeSignature .\RackSight-Setup-1.1.1-x64.exe |
 To calculate a checksum:
 
 ```powershell
-Get-FileHash .\RackSight-Setup-1.1.1-x64.exe -Algorithm SHA256
+Get-FileHash .\RackSight-Setup-1.1.2-x64.exe -Algorithm SHA256
 ```
 
 Compare the result with the checksum published in the matching GitHub Release notes.
