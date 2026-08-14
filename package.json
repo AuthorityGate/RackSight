@@ -1,0 +1,39 @@
+{
+  "name": "racksight",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cross-vendor Redfish hardware monitoring and alerting",
+  "author": "AuthorityGate",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "electron": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": { "nodemailer": "^9.0.5" },
+  "devDependencies": { "electron": "^43.4.0", "electron-builder": "^26.15.3" },
+  "build": {
+    "appId": "net.authoritygate.racksight",
+    "productName": "RackSight",
+    "asar": true,
+    "files": ["server.js", "public/**/*", "electron/**/*", ".icon/**/*", "package.json", "node_modules/**/*"],
+    "directories": { "output": "release" },
+    "win": {
+      "icon": ".icon/AsusRocks_MB.ico",
+      "target": ["nsis", "portable"],
+      "signtoolOptions": {
+        "certificateSha1": "787D83F3BFFD136E8D2F8AD3261FD15D393FAC7A",
+        "signingHashAlgorithms": ["sha256"],
+        "rfc3161TimeStampServer": "http://timestamp.globalsign.com/tsa/r45standard",
+        "publisherName": "AUTHORITYGATE INC"
+      }
+    },
+    "nsis": { "artifactName": "RackSight-Setup-${version}-${arch}.${ext}", "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "license": "LICENSE" },
+    "portable": { "artifactName": "RackSight-Portable-${version}-${arch}.${ext}" }
+  }
+}

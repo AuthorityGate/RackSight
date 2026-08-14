@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <title>RackSight · Redfish Infrastructure Monitor</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">R</span><div><strong>RackSight</strong><small>REDFISH MONITOR</small></div></div>
+      <nav>
+        <button class="nav-item active" data-view="overview"><span>▦</span> Overview</button>
+        <button class="nav-item" data-view="hardware"><span>◈</span> Hardware</button>
+        <button class="nav-item" data-view="settings"><span>⚙</span> Settings</button>
+      </nav>
+      <div class="side-status"><span class="pulse"></span><div><strong>Live monitoring</strong><small id="refreshLabel">Refresh every 30s</small></div></div>
+    </aside>
+
+    <main>
+      <header>
+        <div><p class="eyebrow" id="pageEyebrow">INFRASTRUCTURE</p><h1 id="pageTitle">System overview</h1><p class="subtitle" id="pageSubtitle">Health and telemetry across your Redfish-managed servers.</p></div>
+        <div class="header-actions"><button id="alertIndicator" class="button alert-button hidden" data-view="settings">⚠ <span>0 alerts</span></button><button id="refreshButton" class="button ghost">↻ Refresh</button><button id="addButton" class="button primary">＋ Add server</button></div>
+      </header>
+
+      <section id="emptyState" class="empty hidden">
+        <div class="empty-icon">⌁</div><h2>No servers connected</h2><p>Add a BMC hostname or IP address to begin monitoring.</p><button class="button primary" data-add>＋ Add your first server</button>
+      </section>
+
+      <section id="dashboard" class="hidden">
+        <div class="summary-grid">
+          <article class="summary"><span class="summary-icon blue">▰</span><div><small>SERVERS</small><strong id="serverCount">0</strong><em id="onlineCount">0 reachable</em></div></article>
+          <article class="summary"><span class="summary-icon green">✓</span><div><small>HEALTHY</small><strong id="healthyCount">0</strong><em>overall status OK</em></div></article>
+          <article class="summary"><span class="summary-icon amber">△</span><div><small>WARNINGS</small><strong id="warningCount">0</strong><em>need attention</em></div></article>
+          <article class="summary"><span class="summary-icon violet">◴</span><div><small>AVG RESPONSE</small><strong id="responseTime">—</strong><em>Redfish latency</em></div></article>
+        </div>
+        <div class="section-heading"><div><h2>Managed servers</h2><p>Select a server for complete hardware and configuration details.</p></div><span id="lastUpdated">Not refreshed</span></div>
+        <div id="serverGrid" class="server-grid"></div>
+      </section>
+      <section id="secondaryView" class="hidden"></section>
+    </main>
+  </div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <button class="modal-close" data-close aria-label="Close">×</button>
+      <p class="eyebrow">REDFISH CONNECTION</p><h2 id="modalTitle">Add server</h2><p class="modal-copy">Enter the address and credentials for the BMC management interface.</p>
+      <form id="serverForm">
+        <input type="hidden" id="serverId">
+        <label>Display name<input id="name" autocomplete="off" placeholder="Storage node 01"></label>
+        <label>FQDN or IP address<input id="address" required autocomplete="off" placeholder="bmc01.example.com or 10.0.10.21"></label>
+        <div class="form-row"><label>Username<input id="username" required autocomplete="username" placeholder="admin"></label><label>Password<input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></label></div>
+        <p class="form-note">Credentials are encrypted at rest on this dashboard host.</p>
+        <div id="formError" class="form-error hidden"></div>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close>Cancel</button><button type="submit" class="button primary">Save & connect</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="detailPanel" class="drawer hidden">
+    <div class="drawer-backdrop" data-detail-close></div>
+    <aside class="drawer-content"><button class="modal-close" data-detail-close aria-label="Close">×</button><div id="detailBody"></div></aside>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
