@@ -42,26 +42,38 @@ function historyPollSpacingMs(serverCount, intervalMs = HISTORY_INTERVAL_MS) {
   return intervalMs / count;
 }
 
+function startupPollSpacingMs(serverCount, windowMs = 10000) {
+  const count = Math.max(1, Number(serverCount) || 1);
+  return count === 1 ? 0 : windowMs / count;
+}
+
 function createStaggeredQueue(getSpacingMs = () => 0) {
-  let tail = Promise.resolve();
+  let schedulingTail = Promise.resolve();
   let lastStartedAt = 0;
   return task => {
-    const run = async () => {
+    let taskPromise;
+    const start = async () => {
       const spacing = Math.max(0, Number(getSpacingMs()) || 0);
       const waitMs = Math.max(0, lastStartedAt + spacing - Date.now());
       if (waitMs) await delay(waitMs);
       lastStartedAt = Date.now();
-      return task();
+      taskPromise = Promise.resolve().then(task);
     };
-    const result = tail.then(run, run);
-    tail = result.catch(() => {});
-    return result;
+    const scheduled = schedulingTail.then(start, start);
+    // Advance the queue as soon as a scan starts. The scan may continue while
+    // the next server waits for its assigned start slot.
+    schedulingTail = scheduled.catch(() => {});
+    return scheduled.then(() => taskPromise);
   };
 }
 
 const enqueueCollection = createStaggeredQueue(() => {
   try { return historyPollSpacingMs(readServers().length); }
   catch { return HISTORY_INTERVAL_MS; }
+});
+const enqueueStartupCollection = createStaggeredQueue(() => {
+  try { return startupPollSpacingMs(readServers().length); }
+  catch { return 10000; }
 });
 
 const DEFAULT_ALERT_SETTINGS = {
@@ -666,7 +678,7 @@ function readAlertEvents(limit = 100) {
   }).slice(-Math.max(1, Math.min(500, limit))).reverse();
 }
 
-async function pollServer(server, force = false) {
+async function pollServer(server, force = false, startup = false) {
   const paused = !force && activeBmcBackoff(server.id);
   if (paused) {
     recordOffline(server.id, paused);
@@ -675,10 +687,10 @@ async function pollServer(server, force = false) {
   const cached = recentData.get(server.id);
   if (!force && cached && Date.now() - cached.time < DATA_CACHE_MS) return cached.data;
   if (pollInFlight.has(server.id)) return pollInFlight.get(server.id);
-  // Every caller, including background history, dashboard refreshes, and
-  // Connect now, shares this queue. This prevents multiple BMCs from being
-  // scanned simultaneously and spreads scan starts across the polling minute.
-  const operation = enqueueCollection(() => collectServer(server))
+  // Startup gives every BMC a start slot within ten seconds. Steady-state
+  // collection starts are spread evenly across the polling minute.
+  const enqueue = startup ? enqueueStartupCollection : enqueueCollection;
+  const operation = enqueue(() => collectServer(server))
     .then(data => {
       bmcBackoffs.delete(server.id);
       recentData.set(server.id, { time: Date.now(), data });
@@ -785,25 +797,22 @@ function pruneHistory() {
   }
 }
 
-async function pollAllServers() {
+async function pollAllServers(startup = false) {
   let servers;
   try { servers = readServers(); } catch (error) { console.error(`History poll: ${error.message}`); return; }
-  // pollServer places these jobs on the global staggered queue. Waiting for the
-  // complete group prevents a slow fleet from accumulating another cycle.
-  await Promise.allSettled(servers.map(server => pollServer(server)));
+  await Promise.allSettled(servers.map(server => pollServer(server, false, startup)));
 }
 
 function startHistoryPolling() {
   pruneHistory();
-  const runCycle = async () => {
+  const runCycle = async (startup = false) => {
     const cycleStartedAt = Date.now();
-    await pollAllServers();
+    await pollAllServers(startup);
     const waitMs = Math.max(0, cycleStartedAt + HISTORY_INTERVAL_MS - Date.now());
-    const next = setTimeout(runCycle, waitMs);
+    const next = setTimeout(() => runCycle(false), waitMs);
     next.unref?.();
   };
-  const initial = setTimeout(runCycle, 1000);
-  initial.unref?.();
+  runCycle(true).catch(error => console.error(`History poll: ${error.message}`));
   const pruneTimer = setInterval(pruneHistory, 6 * 60 * 60 * 1000);
   pruneTimer.unref?.();
 }
@@ -964,4 +973,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };
+module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };

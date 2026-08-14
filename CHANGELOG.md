@@ -2,6 +2,14 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.5] - 2026-08-14
+
+### Changed
+
+- Startup uses a dedicated ten-second bootstrap window so every configured server begins its initial collection promptly instead of waiting for the steady-state one-minute schedule.
+- Steady-state collections retain evenly distributed start times (`60 seconds ÷ server count`) while allowing an already-started scan to finish independently.
+- GitHub release retention is now enforced automatically: only the newest two releases and tags are retained.
+
 ## [1.1.4] - 2026-08-14
 
 ### Changed

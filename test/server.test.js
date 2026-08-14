@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
+const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
 
 test('normalizes BMC hostnames and addresses', () => {
   assert.equal(normalizeBaseUrl('bmc01.example.com'), 'https://bmc01.example.com');
@@ -49,7 +49,14 @@ test('splits the polling minute evenly across the configured fleet', () => {
   assert.equal(historyPollSpacingMs(60), 1000);
 });
 
-test('runs server collections one at a time', async () => {
+test('starts the entire fleet within the ten-second bootstrap window', () => {
+  assert.equal(startupPollSpacingMs(1), 0);
+  assert.equal(startupPollSpacingMs(3), 10000 / 3);
+  assert.equal(startupPollSpacingMs(6), 10000 / 6);
+  assert.ok(startupPollSpacingMs(60) * 59 < 10000);
+});
+
+test('staggering controls start order without waiting for prior scans to finish', async () => {
   const enqueue = createStaggeredQueue(() => 0);
   let active = 0;
   let peak = 0;
@@ -63,8 +70,8 @@ test('runs server collections one at a time', async () => {
     active -= 1;
   }));
   await Promise.all(jobs);
-  assert.equal(peak, 1);
-  assert.deepEqual(order, ['start-1', 'end-1', 'start-2', 'end-2', 'start-3', 'end-3']);
+  assert.equal(peak, 3);
+  assert.deepEqual(order.slice(0, 3), ['start-1', 'start-2', 'start-3']);
 });
 
 test('backs off repeated BMC authentication and rate-limit responses', () => {
