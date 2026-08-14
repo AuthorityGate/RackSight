@@ -2,6 +2,20 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.0.1] - 2026-08-14
+
+### Added
+
+- AuthorityGate RackSight application icon throughout the desktop executable, installer, tray, notifications, and web interface.
+- Fixed system-wide installation path at `C:\Program Files\AuthorityGate\RackSight` with application values under `HKLM\SOFTWARE\AuthorityGate\RackSight`.
+- Required installer email disclosure and best-effort installation registration containing only email, computer FQDN, and app version; registration never licenses, activates, gates, or blocks RackSight.
+- Startup update prompt backed by signed GitHub Releases, with upgrade, changelog, and defer choices.
+- Pre-update application-data backups and automatic recovery if the primary data directory is unexpectedly missing.
+
+### Changed
+
+- Installer data remains separate from program binaries so server definitions, encrypted credentials, SMTP and alert settings, and retained telemetry history persist across every upgrade.
+
 ## [1.0.0] - 2026-08-14
 
 ### Added

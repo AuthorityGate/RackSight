@@ -1,6 +1,6 @@
 {
   "name": "racksight",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Cross-vendor Redfish hardware monitoring and alerting",
   "author": "AuthorityGate",
@@ -14,26 +14,74 @@
     "dist": "electron-builder",
     "dist:win": "electron-builder --win"
   },
-  "engines": { "node": ">=18" },
-  "dependencies": { "nodemailer": "^9.0.5" },
-  "devDependencies": { "electron": "^43.4.0", "electron-builder": "^26.15.3" },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "nodemailer": "^9.0.5"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3"
+  },
   "build": {
     "appId": "net.authoritygate.racksight",
     "productName": "RackSight",
     "asar": true,
-    "files": ["server.js", "public/**/*", "electron/**/*", ".icon/**/*", "package.json", "node_modules/**/*"],
-    "directories": { "output": "release" },
+    "files": [
+      "server.js",
+      "public/**/*",
+      "electron/**/*",
+      "Logo/racksight-icon.png",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "installer/register-installation.ps1",
+        "to": "registration/register-installation.ps1"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "AuthorityGate",
+        "repo": "RackSight",
+        "releaseType": "release"
+      }
+    ],
     "win": {
-      "icon": ".icon/AsusRocks_MB.ico",
-      "target": ["nsis", "portable"],
+      "icon": ".icon/RackSight.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "signtoolOptions": {
         "certificateSha1": "787D83F3BFFD136E8D2F8AD3261FD15D393FAC7A",
-        "signingHashAlgorithms": ["sha256"],
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
         "rfc3161TimeStampServer": "http://timestamp.globalsign.com/tsa/r45standard",
         "publisherName": "AUTHORITYGATE INC"
       }
     },
-    "nsis": { "artifactName": "RackSight-Setup-${version}-${arch}.${ext}", "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "license": "LICENSE" },
-    "portable": { "artifactName": "RackSight-Portable-${version}-${arch}.${ext}" }
+    "nsis": {
+      "artifactName": "RackSight-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": false,
+      "menuCategory": "AuthorityGate",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "license": "LICENSE",
+      "include": "installer/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "RackSight-Portable-${version}-${arch}.${ext}"
+    }
   }
 }

@@ -1,15 +1,90 @@
 'use strict';
 
 const path = require('node:path');
-const { app, BrowserWindow, Menu, Notification, Tray, shell } = require('electron');
+const fs = require('node:fs');
+const { app, BrowserWindow, Menu, Notification, Tray, shell, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 let tray;
 let webServer;
 let alertTimer;
 let isQuitting = false;
+let updatePromptOpen = false;
 const notifiedAt = new Map();
-const iconPath = path.join(__dirname, '..', '.icon', 'AsusRocks_MB.ico');
+const iconPath = path.join(__dirname, '..', 'Logo', 'racksight-icon.png');
+
+function persistentPaths() {
+  const root = app.getPath('userData');
+  return { data:path.join(root, 'data'), backups:path.join(root, 'update-backups') };
+}
+
+function restoreUpdateBackupIfNeeded() {
+  const { data, backups } = persistentPaths();
+  if (fs.existsSync(data) || !fs.existsSync(backups)) return;
+  const candidates = fs.readdirSync(backups, { withFileTypes:true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .sort()
+    .reverse();
+  if (candidates[0]) fs.cpSync(path.join(backups, candidates[0]), data, { recursive:true, errorOnExist:true });
+}
+
+function backupPersistentData(version) {
+  const { data, backups } = persistentPaths();
+  if (!fs.existsSync(data)) return;
+  fs.mkdirSync(backups, { recursive:true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  fs.cpSync(data, path.join(backups, `${stamp}-before-${version}`), { recursive:true, errorOnExist:true });
+  const candidates = fs.readdirSync(backups, { withFileTypes:true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .sort()
+    .reverse();
+  for (const old of candidates.slice(3)) fs.rmSync(path.join(backups, old), { recursive:true, force:true });
+}
+
+function configureUpdates() {
+  if (!app.isPackaged || process.platform !== 'win32') return;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('error', () => { /* Offline/private GitHub access must not interrupt startup. */ });
+  autoUpdater.on('update-available', async info => {
+    if (updatePromptOpen) return;
+    updatePromptOpen = true;
+    const result = await dialog.showMessageBox(mainWindow, {
+      type:'info', title:'RackSight update available',
+      message:`RackSight ${info.version} is available`,
+      detail:`You are running ${app.getVersion()}. Upgrade now, review the release changelog, or install it later. Configuration and telemetry history are preserved.`,
+      buttons:['Upgrade now', 'Read changelog', 'Later'], defaultId:0, cancelId:2, icon:iconPath
+    });
+    updatePromptOpen = false;
+    if (result.response === 1) {
+      await shell.openExternal(`https://github.com/AuthorityGate/RackSight/releases/tag/v${encodeURIComponent(info.version)}`);
+    } else if (result.response === 0) {
+      try { await autoUpdater.downloadUpdate(); }
+      catch { /* The next startup check offers the update again. */ }
+    }
+  });
+  autoUpdater.on('update-downloaded', async info => {
+    try { backupPersistentData(info.version); }
+    catch (error) {
+      await dialog.showMessageBox(mainWindow, { type:'error', title:'RackSight update paused', message:'RackSight could not back up its local data.', detail:`The update was not started. Your current data is unchanged. ${error.message}`, buttons:['OK'] });
+      return;
+    }
+    const result = await dialog.showMessageBox(mainWindow, {
+      type:'info', title:'RackSight update ready',
+      message:`RackSight ${info.version} is ready to install`,
+      detail:'A local data backup was created. Restart RackSight now to complete the signed update.',
+      buttons:['Restart and install', 'Install when I quit'], defaultId:0, cancelId:1, icon:iconPath
+    });
+    if (result.response === 0) {
+      isQuitting = true;
+      autoUpdater.quitAndInstall(false, true);
+    }
+  });
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 4000);
+}
 
 function showWindow() {
   if (!mainWindow) return;
@@ -40,7 +115,8 @@ async function monitorAlerts(baseUrl) {
 }
 
 async function startApplication() {
-  process.env.RACKSIGHT_DATA_DIR = path.join(app.getPath('userData'), 'data');
+  restoreUpdateBackupIfNeeded();
+  process.env.RACKSIGHT_DATA_DIR = persistentPaths().data;
   process.env.HOST = '127.0.0.1';
   const { createApp, startHistoryPolling } = require('../server');
   webServer = createApp();
@@ -62,6 +138,7 @@ async function startApplication() {
   tray.on('double-click', showWindow);
   alertTimer = setInterval(() => monitorAlerts(baseUrl), 15000);
   monitorAlerts(baseUrl);
+  configureUpdates();
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

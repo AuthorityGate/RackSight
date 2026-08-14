@@ -1,16 +1,30 @@
 # Installing RackSight on Windows
 
-RackSight 1.0.0 is distributed as a Windows x64 installer and a portable executable. Both release files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
+RackSight 1.0.1 is distributed as a Windows x64 installer and a portable executable. Both release files are Authenticode-signed by **AUTHORITYGATE INC** and timestamped by GlobalSign.
 
 ## Installer
 
 1. Download `RackSight-Setup-<version>-x64.exe` from the repository's Releases page.
 2. Open **Properties → Digital Signatures** and confirm the signer is `AUTHORITYGATE INC`.
-3. Run the installer, accept the MIT license, and choose an installation directory.
+3. Run the installer, accept the MIT license, and enter the required registration email address.
 4. Start RackSight from the Start menu or desktop shortcut.
 5. Select **Add server** and enter the BMC FQDN or IP address, a descriptive name, and BMC credentials.
 
-The installer is per-user by default and does not require a system-wide installation.
+The installer requires administrator approval and installs to:
+
+```text
+C:\Program Files\AuthorityGate\RackSight
+```
+
+Application installation values are stored under `HKEY_LOCAL_MACHINE\SOFTWARE\AuthorityGate\RackSight`. Windows also creates its standard Apps & Features uninstall entry.
+
+Setup attempts one registration with `https://license.authoritygate.com` containing only the entered email, the computer FQDN, and installed app version. This is not licensing or activation. If the service is offline or blocked, setup records the skipped attempt locally and continues without restricting RackSight.
+
+For managed silent deployment, supply the required email:
+
+```powershell
+.\RackSight-Setup-1.0.1-x64.exe /S /RACKSIGHTEMAIL=user@example.com
+```
 
 ## Portable application
 
@@ -21,7 +35,7 @@ Download `RackSight-Portable-<version>-x64.exe` and run it directly. No installa
 In PowerShell:
 
 ```powershell
-Get-AuthenticodeSignature .\RackSight-Setup-1.0.0-x64.exe |
+Get-AuthenticodeSignature .\RackSight-Setup-1.0.1-x64.exe |
   Select-Object Status, StatusMessage, SignerCertificate
 ```
 
@@ -30,7 +44,7 @@ Get-AuthenticodeSignature .\RackSight-Setup-1.0.0-x64.exe |
 To calculate a checksum:
 
 ```powershell
-Get-FileHash .\RackSight-Setup-1.0.0-x64.exe -Algorithm SHA256
+Get-FileHash .\RackSight-Setup-1.0.1-x64.exe -Algorithm SHA256
 ```
 
 Compare the result with the checksum published in the matching GitHub Release notes.
@@ -44,6 +58,12 @@ Electron stores RackSight data under the current Windows user's application-data
 ```
 
 This directory contains the encryption key, encrypted BMC and SMTP credentials, alert state, alert events, and telemetry history. Back up the entire directory as one unit. Copying only the encrypted credential files without `master.key` makes them unrecoverable.
+
+This directory is outside the installation folder and remains unchanged when RackSight is upgraded. Before an automatic update is installed, RackSight copies it to `%APPDATA%\RackSight\update-backups` and retains the three newest pre-update backups. If the primary data directory is unexpectedly missing after an update, RackSight restores the newest backup before starting its local service.
+
+## Automatic updates
+
+Installed builds check GitHub Releases shortly after startup. When a newer version is published, choose **Upgrade now**, **Read changelog**, or **Later**. Only the installed NSIS build supports in-app replacement; portable users should download and replace the portable executable manually. Update checks fail quietly when GitHub cannot be reached and never interrupt monitoring.
 
 ## Running and closing
 
