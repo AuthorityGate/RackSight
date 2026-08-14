@@ -2,6 +2,13 @@
 
 All notable RackSight changes are documented here. Dates use ISO 8601.
 
+## [1.1.4] - 2026-08-14
+
+### Changed
+
+- Server-wide Redfish collections now run one at a time and are evenly staggered across each one-minute polling cycle (`60 seconds ÷ server count`). Slow collections never overlap; when collection time exceeds the assigned spacing, serialization takes priority.
+- Renamed the overview response metric to **Average collection** and individual timing labels to clarify that they measure a complete Redfish hardware scan rather than network latency.
+
 ## [1.1.3] - 2026-08-14
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
+const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
 
 test('normalizes BMC hostnames and addresses', () => {
   assert.equal(normalizeBaseUrl('bmc01.example.com'), 'https://bmc01.example.com');
@@ -40,6 +40,31 @@ test('limits concurrent BMC member requests', async () => {
   }));
   await Promise.all(tasks);
   assert.equal(peak, 2);
+});
+
+test('splits the polling minute evenly across the configured fleet', () => {
+  assert.equal(historyPollSpacingMs(3), 20000);
+  assert.equal(historyPollSpacingMs(6), 10000);
+  assert.equal(historyPollSpacingMs(12), 5000);
+  assert.equal(historyPollSpacingMs(60), 1000);
+});
+
+test('runs server collections one at a time', async () => {
+  const enqueue = createStaggeredQueue(() => 0);
+  let active = 0;
+  let peak = 0;
+  const order = [];
+  const jobs = [1, 2, 3].map(id => enqueue(async () => {
+    active += 1;
+    peak = Math.max(peak, active);
+    order.push(`start-${id}`);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    order.push(`end-${id}`);
+    active -= 1;
+  }));
+  await Promise.all(jobs);
+  assert.equal(peak, 1);
+  assert.deepEqual(order, ['start-1', 'end-1', 'start-2', 'end-2', 'start-3', 'end-3']);
 });
 
 test('backs off repeated BMC authentication and rate-limit responses', () => {

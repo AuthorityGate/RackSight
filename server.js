@@ -37,6 +37,33 @@ const lastRecordedAt = new Map();
 let alertStateLoaded = false;
 const activeAlerts = new Map();
 
+function historyPollSpacingMs(serverCount, intervalMs = HISTORY_INTERVAL_MS) {
+  const count = Math.max(1, Number(serverCount) || 1);
+  return intervalMs / count;
+}
+
+function createStaggeredQueue(getSpacingMs = () => 0) {
+  let tail = Promise.resolve();
+  let lastStartedAt = 0;
+  return task => {
+    const run = async () => {
+      const spacing = Math.max(0, Number(getSpacingMs()) || 0);
+      const waitMs = Math.max(0, lastStartedAt + spacing - Date.now());
+      if (waitMs) await delay(waitMs);
+      lastStartedAt = Date.now();
+      return task();
+    };
+    const result = tail.then(run, run);
+    tail = result.catch(() => {});
+    return result;
+  };
+}
+
+const enqueueCollection = createStaggeredQueue(() => {
+  try { return historyPollSpacingMs(readServers().length); }
+  catch { return HISTORY_INTERVAL_MS; }
+});
+
 const DEFAULT_ALERT_SETTINGS = {
   enabled: true,
   thresholdC: 85,
@@ -648,7 +675,10 @@ async function pollServer(server, force = false) {
   const cached = recentData.get(server.id);
   if (!force && cached && Date.now() - cached.time < DATA_CACHE_MS) return cached.data;
   if (pollInFlight.has(server.id)) return pollInFlight.get(server.id);
-  const operation = collectServer(server)
+  // Every caller, including background history, dashboard refreshes, and
+  // Connect now, shares this queue. This prevents multiple BMCs from being
+  // scanned simultaneously and spreads scan starts across the polling minute.
+  const operation = enqueueCollection(() => collectServer(server))
     .then(data => {
       bmcBackoffs.delete(server.id);
       recentData.set(server.id, { time: Date.now(), data });
@@ -758,15 +788,22 @@ function pruneHistory() {
 async function pollAllServers() {
   let servers;
   try { servers = readServers(); } catch (error) { console.error(`History poll: ${error.message}`); return; }
+  // pollServer places these jobs on the global staggered queue. Waiting for the
+  // complete group prevents a slow fleet from accumulating another cycle.
   await Promise.allSettled(servers.map(server => pollServer(server)));
 }
 
 function startHistoryPolling() {
   pruneHistory();
-  const initial = setTimeout(pollAllServers, 1000);
+  const runCycle = async () => {
+    const cycleStartedAt = Date.now();
+    await pollAllServers();
+    const waitMs = Math.max(0, cycleStartedAt + HISTORY_INTERVAL_MS - Date.now());
+    const next = setTimeout(runCycle, waitMs);
+    next.unref?.();
+  };
+  const initial = setTimeout(runCycle, 1000);
   initial.unref?.();
-  const pollTimer = setInterval(pollAllServers, HISTORY_INTERVAL_MS);
-  pollTimer.unref?.();
   const pruneTimer = setInterval(pruneHistory, 6 * 60 * 60 * 1000);
   pruneTimer.unref?.();
 }
@@ -927,4 +964,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };
+module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };
