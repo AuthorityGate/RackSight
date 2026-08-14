@@ -135,18 +135,6 @@ FunctionEnd
   ${IfNot} ${Errors}
     StrCpy $RackSightCompany $R1
   ${EndIf}
-  ${If} ${Silent}
-    Call RackSightValidateEmail
-    ${If} $R8 != ""
-      MessageBox MB_ICONSTOP "Silent setup requires /RACKSIGHTEMAIL=user@example.com."
-      Abort
-    ${EndIf}
-    Call RackSightValidateCompany
-    ${If} $R8 != ""
-      MessageBox MB_ICONSTOP 'Silent setup requires /RACKSIGHTCOMPANY="Company Name".'
-      Abort
-    ${EndIf}
-  ${EndIf}
 !macroend
 
 !macro customPageAfterChangeDir
@@ -161,7 +149,10 @@ FunctionEnd
   WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationEmail" "$RackSightEmail"
   WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationCompany" "$RackSightCompany"
   WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "RegistrationEndpoint" "https://license.authoritygate.com/api/racksight/installations"
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\registration\register-installation.ps1"'
+  ${If} $RackSightEmail != ""
+  ${AndIf} $RackSightCompany != ""
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\registration\register-installation.ps1"'
+  ${EndIf}
 !macroend
 !endif
 
