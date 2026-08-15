@@ -23,3 +23,9 @@ Regenerate both editable files after changing the export colors in `scripts/gene
 ```powershell
 node scripts/generate-editable-logo.js
 ```
+
+`racksight-logo-black-gold-clean.png` is the cleaned Black/Gold export used by the Chocolate application theme. Regenerate it with:
+
+```powershell
+node scripts/generate-black-gold-logo.js
+```

@@ -5,19 +5,19 @@ const path = require('node:path');
 const { PNG } = require('pngjs');
 
 const ROOT = path.resolve(__dirname, '..');
-const SOURCE = path.join(ROOT, 'public', 'racksight-icon-chocolate.png');
 const ORIGINAL = path.join(ROOT, 'Logo', 'racksight-icon.png');
 const FLAT_PNG = path.join(ROOT, 'Logo', 'racksight-logo-flat.png');
+const SOURCE = FLAT_PNG;
 const EDITABLE_SVG = path.join(ROOT, 'Logo', 'racksight-logo-editable.svg');
 
 // These are the only two exported logo colors.
 const SERVER_COLOR = [0x9B, 0x23, 0x35];
 const ARCH_COLOR = [0x2C, 0x2C, 0x2C];
 
-// The Chocolate asset is the exact original silhouette reduced to two flat
-// source colors. Its alpha channel is byte-for-byte identical to the original.
-const SERVER_MASK_COLOR = [0, 0, 0];
-const ARCH_MASK_COLOR = [0xE8, 0xDC, 0xC8];
+// The flat master is the exact original silhouette reduced to two source
+// colors. Its alpha channel is byte-for-byte identical to the original.
+const SERVER_MASK_COLOR = SERVER_COLOR;
+const ARCH_MASK_COLOR = ARCH_COLOR;
 
 function sameRgb(data, offset, color) {
   return data[offset] === color[0] && data[offset + 1] === color[1] && data[offset + 2] === color[2];
