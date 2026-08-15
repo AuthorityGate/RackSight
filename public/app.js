@@ -176,7 +176,7 @@ function renderMobileSettings() {
 
 function renderThemeSettings() {
   const option = (id, title, detail) => `<button type="button" class="theme-option ${state.theme === id ? 'active' : ''}" data-theme-choice="${id}"><i class="theme-swatch ${id}"></i><span><strong>${title}</strong><small>${detail}</small></span></button>`;
-  return `<section class="settings-card theme-card"><h2>Appearance</h2><p>AuthorityGate corporate palettes with WCAG AA contrast.</p><div class="theme-options">${option('corporate','Corporate Cream','Cream · gold · burgundy')}${option('chocolate','Chocolate','Dark chocolate · espresso · gold')}${option('charcoal','Charcoal','Warm charcoal · near black · copper')}</div></section>`;
+  return `<section class="settings-card theme-card"><h2>Appearance</h2><p>AuthorityGate corporate palettes with WCAG AA contrast.</p><div class="theme-options">${option('corporate','Cream','Cream · gold · burgundy')}${option('chocolate','Chocolate','Dark chocolate · espresso · gold')}${option('charcoal','Charcoal','Warm charcoal · near black · copper')}</div></section>`;
 }
 
 function renderMonitoringSettings() {
