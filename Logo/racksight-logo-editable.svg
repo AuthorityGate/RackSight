@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="834" height="834" viewBox="0 0 834 834" role="img" aria-labelledby="title description">
+  <title id="title">RackSight editable logo</title>
+  <desc id="description">Six rack servers behind an observation arch. The servers and arch use separate flat colors.</desc>
+
+  <!-- QUICK COLOR EDITS: change only these two hex values. -->
+  <style>
+    .server-color { fill: #9B2335; }
+    .arch-color { fill: #2C2C2C; stroke: #2C2C2C; }
+  </style>
+
+  <!-- One compound path: every server and transparent opening shares one flat fill. -->
+  <path id="servers" class="server-color" fill-rule="evenodd" d="
+    M36 208 H798 Q800 208 800 212 V273 Q800 277 796 277 H36 Z
+    M69 228 H151 Q159 228 159 236 V251 Q159 259 151 259 H77 Q69 259 69 251 Z
+    M538 244 A17 17 0 1 1 504 244 A17 17 0 1 1 538 244 Z
+
+    M36 294 H798 Q800 294 800 298 V358 Q800 362 796 362 H36 Z
+    M69 313 H151 Q159 313 159 321 V336 Q159 344 151 344 H77 Q69 344 69 336 Z
+    M538 328 A17 17 0 1 1 504 328 A17 17 0 1 1 538 328 Z
+    M597 328 A17 17 0 1 1 563 328 A17 17 0 1 1 597 328 Z
+
+    M36 378 H798 Q800 378 800 382 V442 Q800 446 796 446 H36 Z
+    M69 398 H151 Q159 398 159 406 V421 Q159 429 151 429 H77 Q69 429 69 421 Z
+    M538 413 A17 17 0 1 1 504 413 A17 17 0 1 1 538 413 Z
+    M597 413 A17 17 0 1 1 563 413 A17 17 0 1 1 597 413 Z
+
+    M36 463 H798 Q800 463 800 467 V527 Q800 531 796 531 H36 Z
+    M69 481 H151 Q159 481 159 489 V504 Q159 512 151 512 H77 Q69 512 69 504 Z
+    M538 496 A17 17 0 1 1 504 496 A17 17 0 1 1 538 496 Z
+    M597 496 A17 17 0 1 1 563 496 A17 17 0 1 1 597 496 Z
+    M656 496 A17 17 0 1 1 622 496 A17 17 0 1 1 656 496 Z
+
+    M36 547 H798 Q800 547 800 551 V611 Q800 615 796 615 H36 Z
+    M69 566 H151 Q159 566 159 574 V589 Q159 597 151 597 H77 Q69 597 69 589 Z
+    M538 581 A17 17 0 1 1 504 581 A17 17 0 1 1 538 581 Z
+    M597 581 A17 17 0 1 1 563 581 A17 17 0 1 1 597 581 Z
+    M656 581 A17 17 0 1 1 622 581 A17 17 0 1 1 656 581 Z
+
+    M36 632 H798 Q800 632 800 636 V695 Q800 699 796 699 H36 Z
+    M69 651 H151 Q159 651 159 659 V674 Q159 682 151 682 H77 Q69 682 69 674 Z
+    M538 666 A17 17 0 1 1 504 666 A17 17 0 1 1 538 666 Z
+    M597 666 A17 17 0 1 1 563 666 A17 17 0 1 1 597 666 Z
+  "/>
+
+  <!-- One named group: change .arch-color once to recolor the complete arch. -->
+  <g id="arch" class="arch-color">
+    <path d="M280 379 C280 258 354 181 454 181 C602 181 706 348 716 652" fill="none" stroke-width="86" stroke-linecap="butt" stroke-linejoin="round"/>
+    <path d="M602 632 H764 L800 699 H576 Z" stroke="none"/>
+  </g>
+</svg>
