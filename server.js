@@ -5,8 +5,9 @@ const https = require('node:https');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const nodemailer = require('nodemailer');
 const { URL } = require('node:url');
+const { createMobileService } = require('./mobile');
+const { version: APP_VERSION } = require('./package.json');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -16,30 +17,30 @@ const HISTORY_DIR = path.join(DATA_DIR, 'history');
 const KEY_FILE = path.join(DATA_DIR, 'master.key');
 const SERVERS_FILE = path.join(DATA_DIR, 'servers.enc.json');
 const ALERT_SETTINGS_FILE = path.join(DATA_DIR, 'alert-settings.json');
+const MONITORING_SETTINGS_FILE = path.join(DATA_DIR, 'monitoring-settings.json');
 const ALERT_STATE_FILE = path.join(DATA_DIR, 'alert-state.json');
 const ALERT_EVENTS_FILE = path.join(DATA_DIR, 'alert-events.jsonl');
-const FAN_STATE_FILE = path.join(DATA_DIR, 'fan-state.json');
-const SMTP_FILE = path.join(DATA_DIR, 'smtp.enc.json');
+const MANAGEMENT_ACTIONS_FILE = path.join(DATA_DIR, 'management-actions.jsonl');
+const FAN_INVENTORY_FILE = path.join(DATA_DIR, 'fan-inventory.json');
+const LATEST_DATA_FILE = path.join(DATA_DIR, 'latest-data.enc.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const APP_VERSION = require('./package.json').version;
 const UPDATE_FILE = path.join(DATA_DIR, 'update-status.json');
 const MAX_BODY = 64 * 1024;
 const HISTORY_INTERVAL_MS = Math.max(30000, Number(process.env.HISTORY_INTERVAL_MS || 60000));
 const HISTORY_RETENTION_MS = 31 * 24 * 60 * 60 * 1000;
-const DATA_CACHE_MS = 55000;
-const BMC_BACKOFF_INITIAL_MS = 5 * 60 * 1000;
-const BMC_BACKOFF_MAX_MS = 30 * 60 * 1000;
+const BMC_BACKOFF_MAX_MS = 10 * 60 * 1000;
+const MANAGER_RESET_COOLDOWN_MS = 10 * 60 * 1000;
 const pollInFlight = new Map();
 const recentData = new Map();
+const lastSuccessfulData = new Map();
+const offlineSince = new Map();
 const bmcBackoffs = new Map();
 const bmcSessions = new Map();
 const bmcSessionPromises = new Map();
 const lastRecordedAt = new Map();
 let alertStateLoaded = false;
+let latestDataLoaded = false;
 const activeAlerts = new Map();
-let fanStateLoaded = false;
-const knownFans = new Map();
-
 function historyPollSpacingMs(serverCount, intervalMs = HISTORY_INTERVAL_MS) {
   const count = Math.max(1, Number(serverCount) || 1);
   return intervalMs / count;
@@ -78,17 +79,18 @@ const enqueueStartupCollection = createStaggeredQueue(() => {
   try { return startupPollSpacingMs(readServers().length); }
   catch { return 10000; }
 });
+const validatedAlertServers = new Set();
 
 const DEFAULT_ALERT_SETTINGS = {
   enabled: true,
   thresholdC: 85,
+  fanAlerts: true,
+  minimumFanRpm: 500,
   durationMinutes: 5,
-  fanAlertsEnabled: true,
-  fanFailureDurationMinutes: 2,
   cooldownMinutes: 30,
   browserNotifications: true
 };
-const DEFAULT_SMTP_SETTINGS = { enabled: false, host: '', port: 587, secure: false, username: '', password: '', from: '', to: '' };
+const DEFAULT_MONITORING_SETTINGS = { pollIntervalMinutes: 5 };
 
 function normalizeBaseUrl(value) {
   const input = String(value || '').trim();
@@ -125,6 +127,47 @@ function encryptionKey() {
   return key;
 }
 
+function loadLatestData() {
+  if (latestDataLoaded) return;
+  latestDataLoaded = true;
+  try {
+    if (!fs.existsSync(LATEST_DATA_FILE)) return;
+    const saved = decrypt(JSON.parse(fs.readFileSync(LATEST_DATA_FILE, 'utf8')));
+    for (const [serverId, data] of Object.entries(saved || {})) if (data && typeof data === 'object') lastSuccessfulData.set(serverId, data);
+  } catch (error) { console.error(`Latest inventory cache could not be loaded: ${error.message}`); }
+}
+
+function saveLatestData() {
+  ensureStorage();
+  const temporary = `${LATEST_DATA_FILE}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(encrypt(Object.fromEntries(lastSuccessfulData)), null, 2), { mode: 0o600 });
+  fs.renameSync(temporary, LATEST_DATA_FILE);
+}
+
+function rememberSuccessfulData(serverId, data) {
+  loadLatestData();
+  lastSuccessfulData.set(serverId, data);
+  saveLatestData();
+}
+
+function cachedOfflineData(server, error) {
+  loadLatestData();
+  const cached = recentData.get(server.id)?.data || lastSuccessfulData.get(server.id);
+  if (!cached) return null;
+  const since = offlineSince.get(server.id) || Date.now();
+  offlineSince.set(server.id, since);
+  return {
+    ...cached,
+    server: publicServer(server),
+    connectivity: {
+      online: false,
+      error: error.message,
+      lastSeenAt: cached.collectedAt || null,
+      offlineSince: new Date(since).toISOString()
+    }
+  };
+}
+
 function encrypt(value) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(), iv);
@@ -146,6 +189,8 @@ function decrypt(payload) {
     decipher.final()
   ]).toString('utf8'));
 }
+
+const mobileService = createMobileService({ dataDir: DATA_DIR, encryptStore: encrypt, decryptStore: decrypt });
 
 function readServers() {
   ensureStorage();
@@ -171,12 +216,12 @@ function validateAlertSettings(input) {
   const thresholdC = Number(input.thresholdC);
   const durationMinutes = Number(input.durationMinutes);
   const cooldownMinutes = Number(input.cooldownMinutes);
-  const fanFailureDurationMinutes = Number(input.fanFailureDurationMinutes ?? 2);
+  const minimumFanRpm = Number(input.minimumFanRpm);
   if (!Number.isFinite(thresholdC) || thresholdC < 20 || thresholdC > 120) throw new Error('Temperature threshold must be between 20°C and 120°C.');
   if (!Number.isFinite(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) throw new Error('Alert duration must be between 1 and 1,440 minutes.');
   if (!Number.isFinite(cooldownMinutes) || cooldownMinutes < 1 || cooldownMinutes > 10080) throw new Error('Cooldown must be between 1 minute and 7 days.');
-  if (!Number.isFinite(fanFailureDurationMinutes) || fanFailureDurationMinutes < 1 || fanFailureDurationMinutes > 1440) throw new Error('Fan failure duration must be between 1 and 1,440 minutes.');
-  return { enabled: input.enabled !== false, thresholdC, durationMinutes, fanAlertsEnabled: input.fanAlertsEnabled !== false, fanFailureDurationMinutes, cooldownMinutes, browserNotifications: input.browserNotifications !== false };
+  if (!Number.isFinite(minimumFanRpm) || minimumFanRpm < 0 || minimumFanRpm > 50000) throw new Error('Minimum fan speed must be between 0 and 50,000 RPM.');
+  return { enabled: input.enabled !== false, thresholdC, fanAlerts: input.fanAlerts !== false, minimumFanRpm, durationMinutes, cooldownMinutes, browserNotifications: input.browserNotifications !== false };
 }
 
 function writeAlertSettings(settings) {
@@ -184,6 +229,32 @@ function writeAlertSettings(settings) {
   const validated = validateAlertSettings(settings);
   fs.writeFileSync(ALERT_SETTINGS_FILE, JSON.stringify(validated, null, 2), { mode: 0o600 });
   return validated;
+}
+
+function validateMonitoringSettings(input) {
+  const pollIntervalMinutes = Number(input.pollIntervalMinutes);
+  if (!Number.isInteger(pollIntervalMinutes) || pollIntervalMinutes < 2 || pollIntervalMinutes > 10) {
+    throw new Error('BMC polling interval must be a whole number from 2 to 10 minutes.');
+  }
+  return { pollIntervalMinutes };
+}
+
+function readMonitoringSettings() {
+  ensureStorage();
+  if (!fs.existsSync(MONITORING_SETTINGS_FILE)) return { ...DEFAULT_MONITORING_SETTINGS };
+  try { return validateMonitoringSettings({ ...DEFAULT_MONITORING_SETTINGS, ...JSON.parse(fs.readFileSync(MONITORING_SETTINGS_FILE, 'utf8')) }); }
+  catch { return { ...DEFAULT_MONITORING_SETTINGS }; }
+}
+
+function writeMonitoringSettings(settings) {
+  ensureStorage();
+  const validated = validateMonitoringSettings(settings);
+  fs.writeFileSync(MONITORING_SETTINGS_FILE, JSON.stringify(validated, null, 2), { mode: 0o600 });
+  return validated;
+}
+
+function pollingIntervalMs() {
+  return readMonitoringSettings().pollIntervalMinutes * 60 * 1000;
 }
 
 function loadAlertState() {
@@ -200,89 +271,46 @@ function saveAlertState() {
   fs.writeFileSync(ALERT_STATE_FILE, JSON.stringify([...activeAlerts.values()], null, 2), { mode: 0o600 });
 }
 
-function loadFanState() {
-  if (fanStateLoaded) return;
-  fanStateLoaded = true;
-  if (!fs.existsSync(FAN_STATE_FILE)) return;
-  try { for (const fan of JSON.parse(fs.readFileSync(FAN_STATE_FILE, 'utf8'))) knownFans.set(fan.key, fan); }
-  catch { /* Relearn connected fans if a prior baseline file is incomplete. */ }
-}
-
-function saveFanState() {
-  ensureStorage();
-  fs.writeFileSync(FAN_STATE_FILE, JSON.stringify([...knownFans.values()], null, 2), { mode: 0o600 });
-}
-
 function appendAlertEvent(event) {
   ensureStorage();
   fs.appendFileSync(ALERT_EVENTS_FILE, `${JSON.stringify(event)}\n`, { mode: 0o600 });
 }
 
-function readSmtpSettings(includePassword = false) {
+function isPresentFan(fan) {
+  const state = String(fan?.state || '').trim().toLowerCase();
+  const hasReading = fan?.value !== null && fan?.value !== '' && fan?.value !== undefined && Number.isFinite(Number(fan.value));
+  return state !== 'absent' && (hasReading || ['enabled','standby','starting'].includes(state));
+}
+
+function connectedFanNames(serverId, fans) {
   ensureStorage();
-  let settings = { ...DEFAULT_SMTP_SETTINGS };
-  if (fs.existsSync(SMTP_FILE)) {
-    try { settings = { ...settings, ...decrypt(JSON.parse(fs.readFileSync(SMTP_FILE, 'utf8'))) }; }
-    catch { /* Preserve safe defaults if configuration cannot be decrypted. */ }
+  let inventory = {};
+  try { inventory = JSON.parse(fs.readFileSync(FAN_INVENTORY_FILE, 'utf8')); } catch { /* Initialize from the first successful fan inventory. */ }
+  const timestamp = new Date().toISOString();
+  const saved = inventory[serverId] && typeof inventory[serverId] === 'object' ? inventory[serverId] : {};
+  let changed = !inventory[serverId];
+  const presentNames = new Set((fans || []).filter(isPresentFan).map(fan => fan.name));
+  // Inventories written before confirmedPresent existed could contain every
+  // Redfish chassis slot because null was once coerced to a zero-RPM reading.
+  // Retain legacy entries only when the hardware is physically present now.
+  for (const [name, record] of Object.entries(saved)) {
+    if (record?.confirmedPresent === true || presentNames.has(name)) continue;
+    delete saved[name];
+    changed = true;
   }
-  if (!includePassword) return { ...settings, password: '', passwordConfigured: Boolean(settings.password) };
-  return settings;
-}
-
-function validateSmtpSettings(input, existing = {}) {
-  const port = Number(input.port || 587);
-  if (input.enabled && !String(input.host || '').trim()) throw new Error('SMTP host is required when email alerts are enabled.');
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SMTP port must be between 1 and 65,535.');
-  if (input.enabled && !String(input.from || '').includes('@')) throw new Error('A valid SMTP sender address is required.');
-  if (input.enabled && !String(input.to || '').split(',').some(value => value.trim().includes('@'))) throw new Error('At least one recipient email address is required.');
-  return {
-    enabled: input.enabled === true,
-    host: String(input.host || '').trim(),
-    port,
-    secure: input.secure === true,
-    username: String(input.username || '').trim(),
-    password: input.password ? String(input.password) : String(existing.password || ''),
-    from: String(input.from || '').trim(),
-    to: String(input.to || '').split(',').map(value => value.trim()).filter(Boolean).join(', ')
-  };
-}
-
-function writeSmtpSettings(input) {
-  const settings = validateSmtpSettings(input, readSmtpSettings(true));
-  fs.writeFileSync(SMTP_FILE, JSON.stringify(encrypt(settings), null, 2), { mode: 0o600 });
-  return readSmtpSettings(false);
-}
-
-function smtpTransport(settings) {
-  const options = { host: settings.host, port: settings.port, secure: settings.secure };
-  if (settings.username || settings.password) options.auth = { user: settings.username, pass: settings.password };
-  return nodemailer.createTransport(options);
-}
-
-async function sendSmtpMessage(subject, text, force = false) {
-  const settings = readSmtpSettings(true);
-  if (!settings.enabled && !force) return { skipped: true };
-  validateSmtpSettings({ ...settings, enabled: true }, settings);
-  const info = await smtpTransport(settings).sendMail({ from: settings.from, to: settings.to, subject, text });
-  return { messageId: info.messageId, accepted: info.accepted };
-}
-
-function sendAlertEmail(alert, event) {
-  if (alert.type === 'fan') {
-    const state = event === 'resolved' ? 'FAN RECOVERED' : 'FAN FAILURE';
-    const subject = `[RackSight] ${state}: ${alert.serverName} ${alert.sensor}`;
-    const text = event === 'resolved'
-      ? `${alert.serverName} fan ${alert.sensor} has recovered.\n\nCurrent speed: ${alert.valueRpm} RPM\nRecovered: ${new Date().toLocaleString()}\n`
-      : `${alert.serverName} reported a fan failure for the configured duration.\n\nFan: ${alert.sensor}\nReason: ${alert.reason}\nCurrent speed: ${alert.valueRpm ?? 'Unavailable'} RPM\nFailure observed since: ${new Date(alert.since).toLocaleString()}\n`;
-    sendSmtpMessage(subject, text).catch(error => console.error(`SMTP alert failed: ${error.message}`));
-    return;
+  for (const fan of fans || []) {
+    if (!isPresentFan(fan)) continue;
+    if (!saved[fan.name]) { saved[fan.name] = { firstSeenAt: timestamp }; changed = true; }
+    if (saved[fan.name].confirmedPresent !== true) { saved[fan.name].confirmedPresent = true; changed = true; }
+    saved[fan.name].lastSeenAt = timestamp;
   }
-  const state = event === 'resolved' ? 'RECOVERED' : 'HIGH TEMPERATURE';
-  const subject = `[RackSight] ${state}: ${alert.serverName} ${alert.sensor}`;
-  const text = event === 'resolved'
-    ? `${alert.serverName} has recovered.\n\nSensor: ${alert.sensor}\nCurrent: ${alert.valueC}°C\nThreshold: ${alert.thresholdC}°C\nRecovered: ${new Date().toLocaleString()}\n`
-    : `${alert.serverName} exceeded its configured temperature threshold for the required duration.\n\nSensor: ${alert.sensor}\nCurrent: ${alert.valueC}°C\nThreshold: ${alert.thresholdC}°C\nAbove threshold since: ${new Date(alert.since).toLocaleString()}\n`;
-  sendSmtpMessage(subject, text).catch(error => console.error(`SMTP alert failed: ${error.message}`));
+  inventory[serverId] = saved;
+  if (changed) {
+    const temporary = `${FAN_INVENTORY_FILE}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify(inventory, null, 2), { mode: 0o600 });
+    fs.renameSync(temporary, FAN_INVENTORY_FILE);
+  }
+  return new Set(Object.keys(saved));
 }
 
 function publicServer(server) {
@@ -373,6 +401,92 @@ async function redfishGet(server, target, retrySession = true) {
     }
     throw error;
   }
+}
+
+async function redfishPost(server, target, body, retrySession = true) {
+  const session = await createBmcSession(server);
+  const headers = session.basicFallback
+    ? { Authorization:`Basic ${Buffer.from(`${server.username}:${server.password}`).toString('base64')}` }
+    : { 'X-Auth-Token':session.token };
+  try { return (await requestJson(target, { method:'POST', headers, body })).data; }
+  catch (error) {
+    if (retrySession && !session.basicFallback && error?.statusCode === 401) {
+      bmcSessions.delete(server.id);
+      return redfishPost(server, target, body, false);
+    }
+    throw error;
+  }
+}
+
+function appendManagementAction(event) {
+  ensureStorage();
+  fs.appendFileSync(MANAGEMENT_ACTIONS_FILE, `${JSON.stringify(event)}\n`, { mode: 0o600 });
+}
+
+function managerResetCooldown(serverId, now = Date.now()) {
+  if (!fs.existsSync(MANAGEMENT_ACTIONS_FILE)) return 0;
+  const recent = fs.readFileSync(MANAGEMENT_ACTIONS_FILE, 'utf8').split('\n').filter(Boolean).slice(-200).reverse();
+  for (const line of recent) {
+    try {
+      const event = JSON.parse(line);
+      if (event.serverId !== serverId || event.action !== 'manager-reset' || event.status !== 'requested') continue;
+      return Math.max(0, MANAGER_RESET_COOLDOWN_MS - (now - Number(event.t || 0)));
+    } catch { /* Ignore an incomplete audit line. */ }
+  }
+  return 0;
+}
+
+function managerResetTarget(server, advertisedTarget) {
+  const target = joinRedfish(server.address, advertisedTarget);
+  const url = new URL(target);
+  const serverOrigin = new URL(server.address).origin;
+  if (url.origin !== serverOrigin) throw new Error('The BMC advertised an unsafe external manager-reset target.');
+  if (!/\/redfish\/v1\/Managers\/[^/]+\/Actions\/Manager\.Reset\/?$/i.test(url.pathname)) {
+    throw new Error('RackSight refused a reset target that is not a Redfish Manager.Reset action. The host will never be reset.');
+  }
+  return target;
+}
+
+function safeManagerResetTypes(values) {
+  const advertised = new Set(Array.isArray(values) ? values : []);
+  return ['GracefulRestart','Restart','ForceRestart'].filter(value => advertised.has(value));
+}
+
+async function resetManager(server) {
+  const remaining = managerResetCooldown(server.id);
+  if (remaining > 0) throw new Error(`A management-controller reset was already requested. Try again in ${Math.ceil(remaining / 60000)} minutes.`);
+  const root = await redfishGet(server, `${server.address}/redfish/v1/`);
+  const managers = await getMembers(server, root.Managers?.['@odata.id'] || '/redfish/v1/Managers');
+  const supported = managers.flatMap(manager => {
+    const action = manager?.Actions?.['#Manager.Reset'];
+    if (!action?.target) return [];
+    const values = action['ResetType@Redfish.AllowableValues'] || [];
+    return [{ manager, action, values:Array.isArray(values) ? values : [] }];
+  });
+  if (!supported.length) throw new Error('This BMC does not advertise the Redfish Manager.Reset action.');
+  const selected = supported[0];
+  const resetTypes = safeManagerResetTypes(selected.values);
+  if (!resetTypes.length) throw new Error('This BMC did not advertise a safe management-controller restart type. Host power actions are never permitted.');
+  const target = managerResetTarget(server, selected.action.target);
+  const timestamp = Date.now();
+  appendManagementAction({ t:timestamp, at:new Date(timestamp).toISOString(), action:'manager-reset', status:'requested', serverId:server.id, serverName:server.name, resetTypes });
+  let lastError;
+  for (const resetType of resetTypes) {
+    try {
+      appendManagementAction({ t:Date.now(), at:new Date().toISOString(), action:'manager-reset', status:'attempted', serverId:server.id, serverName:server.name, resetType });
+      await redfishPost(server, target, { ResetType:resetType });
+      appendManagementAction({ t:Date.now(), at:new Date().toISOString(), action:'manager-reset', status:'accepted', serverId:server.id, serverName:server.name, resetType });
+      bmcSessions.delete(server.id);
+      bmcBackoffs.delete(server.id);
+      recentData.delete(server.id);
+      return { accepted:true, resetType, hostReset:false, message:`${server.name} accepted the ${resetType} BMC-management restart. RackSight did not send a host reboot or power action.` };
+    } catch (error) {
+      lastError = error;
+      appendManagementAction({ t:Date.now(), at:new Date().toISOString(), action:'manager-reset', status:'attempt-failed', serverId:server.id, serverName:server.name, resetType, error:String(error.message || error) });
+    }
+  }
+  appendManagementAction({ t:Date.now(), at:new Date().toISOString(), action:'manager-reset', status:'failed', serverId:server.id, serverName:server.name, error:String(lastError?.message || lastError || 'Manager restart failed') });
+  throw lastError || new Error('The BMC rejected every safe management-controller restart type.');
 }
 
 function createLimiter(limit) {
@@ -612,38 +726,40 @@ function appendHistory(serverId, snapshot) {
 
 function recordOffline(serverId, error) {
   const now = Date.now();
+  if (now - (lastRecordedAt.get(serverId) || 0) < pollingIntervalMs()) return;
   appendHistory(serverId, { t: now, online: false, error: String(error?.message || error), temperatures: {}, fans: {} });
 }
 
-function nextBmcBackoff(previousDelay = 0) {
+function nextBmcBackoff(previousDelay = 0, initialDelay = 5 * 60 * 1000) {
   return previousDelay > 0
     ? Math.min(BMC_BACKOFF_MAX_MS, previousDelay * 2)
-    : BMC_BACKOFF_INITIAL_MS;
+    : Math.min(BMC_BACKOFF_MAX_MS, initialDelay);
 }
 
 function activeBmcBackoff(serverId, now = Date.now()) {
   const backoff = bmcBackoffs.get(serverId);
   if (!backoff || backoff.until <= now) return null;
   const remainingMinutes = Math.max(1, Math.ceil((backoff.until - now) / 60000));
-  const error = new Error(`BMC temporarily refused requests (HTTP ${backoff.statusCode}). RackSight paused polling and will retry in about ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`);
+  const detail = backoff.statusCode ? ` (HTTP ${backoff.statusCode})` : '';
+  const error = new Error(`BMC is temporarily unavailable${detail}. RackSight will retry automatically in about ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`);
   error.statusCode = backoff.statusCode;
   error.retryAfterMs = backoff.until - now;
   return error;
 }
 
 function applyBmcBackoff(serverId, error, now = Date.now()) {
-  if (![401, 403, 429].includes(Number(error?.statusCode))) return error;
   const previous = bmcBackoffs.get(serverId);
-  const delay = nextBmcBackoff(previous?.delay || 0);
+  const delay = nextBmcBackoff(previous?.delay || 0, pollingIntervalMs());
   bmcBackoffs.set(serverId, { delay, until: now + delay, statusCode: Number(error.statusCode) });
   const minutes = Math.ceil(delay / 60000);
-  error.message = `${error.message} RackSight paused polling for ${minutes} minute${minutes === 1 ? '' : 's'} to avoid extending a BMC lockout or rate limit.`;
+  error.message = `${error.message} RackSight will retry automatically in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
   error.retryAfterMs = delay;
   return error;
 }
 
 function evaluateTemperatureAlerts(server, data, now = Date.now()) {
   loadAlertState();
+  validatedAlertServers.add(server.id);
   const settings = readAlertSettings();
   if (!settings.enabled) {
     for (const [key, alert] of activeAlerts) if (alert.serverId === server.id && alert.type !== 'fan') activeAlerts.delete(key);
@@ -664,6 +780,7 @@ function evaluateTemperatureAlerts(server, data, now = Date.now()) {
         serverId: server.id,
         serverName: server.name,
         sensor: sensor.name,
+        type: 'temperature',
         thresholdC: settings.thresholdC,
         since: now,
         status: 'pending'
@@ -675,14 +792,49 @@ function evaluateTemperatureAlerts(server, data, now = Date.now()) {
         alert.status = 'firing';
         alert.firedAt = now;
         appendAlertEvent({ ...alert, event: 'fired', t: now });
-        sendAlertEmail(alert, 'fired');
+        mobileService.publishAlert(alert, 'fired').catch(error => console.error(`Mobile alert delivery failed: ${error.message}`));
       }
       activeAlerts.set(key, alert);
     } else if (existing) {
       if (existing.status === 'firing') {
         const resolved = { ...existing, valueC: value };
         appendAlertEvent({ ...resolved, event: 'resolved', t: now });
-        sendAlertEmail(resolved, 'resolved');
+        mobileService.publishAlert(resolved, 'resolved').catch(error => console.error(`Mobile recovery delivery failed: ${error.message}`));
+      }
+      activeAlerts.delete(key);
+    }
+  }
+  const installedFans = connectedFanNames(server.id, data.fans || []);
+  const trackedFans = [...(data.fans || [])];
+  const reportedFanNames = new Set(trackedFans.map(fan => fan.name));
+  for (const name of installedFans) if (!reportedFanNames.has(name)) trackedFans.push({ name, state: 'Absent', value: null });
+  if (settings.fanAlerts) for (const fan of trackedFans) {
+    if (!installedFans.has(fan.name)) continue;
+    const value = Number(fan.value);
+    const hasReading = fan.value !== null && fan.value !== '' && fan.value !== undefined && Number.isFinite(value);
+    const missing = String(fan.state || '').toLowerCase() === 'absent';
+    const low = hasReading && value < settings.minimumFanRpm;
+    const key = `${server.id}:fan:${fan.name}`;
+    seen.add(key);
+    const existing = activeAlerts.get(key);
+    if (missing || low) {
+      const alert = existing || { key, id: crypto.randomUUID(), serverId: server.id, serverName: server.name, sensor: fan.name, type: 'fan', since: now, status: 'pending' };
+      alert.condition = missing ? 'missing' : 'low-speed';
+      alert.valueRpm = hasReading ? value : null;
+      alert.thresholdRpm = settings.minimumFanRpm;
+      alert.lastSeen = now;
+      if (now - alert.since >= settings.durationMinutes * 60 * 1000 && alert.status !== 'firing') {
+        alert.status = 'firing';
+        alert.firedAt = now;
+        appendAlertEvent({ ...alert, event: 'fired', t: now });
+        mobileService.publishAlert(alert, 'fired').catch(error => console.error(`Fan alert delivery failed: ${error.message}`));
+      }
+      activeAlerts.set(key, alert);
+    } else if (existing) {
+      if (existing.status === 'firing') {
+        const resolved = { ...existing, valueRpm: hasReading ? value : null };
+        appendAlertEvent({ ...resolved, event: 'resolved', t: now });
+        mobileService.publishAlert(resolved, 'resolved').catch(error => console.error(`Fan recovery delivery failed: ${error.message}`));
       }
       activeAlerts.delete(key);
     }
@@ -695,54 +847,11 @@ function evaluateTemperatureAlerts(server, data, now = Date.now()) {
   saveAlertState();
 }
 
-function fanFailureReason(fan, wasKnown = false) {
-  const state = String(fan?.state || '').toLowerCase();
-  const health = String(fan?.health || '').toLowerCase();
-  const value = fan?.value == null ? null : Number(fan.value);
-  if (health && !['ok', 'unknown'].includes(health)) return `health is ${fan.health}`;
-  if (wasKnown && ['absent', 'disabled', 'unavailable'].includes(state)) return `state is ${fan.state}`;
-  if (!['absent', 'disabled'].includes(state) && Number.isFinite(value) && value <= 0) return 'speed is 0 RPM';
-  if (wasKnown && !Number.isFinite(value)) return 'RPM reading is unavailable';
-  return null;
-}
-
-function evaluateFanAlerts(server, data, now = Date.now()) {
-  loadAlertState(); loadFanState();
-  const settings = readAlertSettings();
-  if (!settings.fanAlertsEnabled) {
-    for (const [key, alert] of activeAlerts) if (alert.serverId === server.id && alert.type === 'fan') activeAlerts.delete(key);
-    saveAlertState(); return;
-  }
-  for (const fan of data.fans || []) {
-    const key = `${server.id}:fan:${fan.name}`;
-    const wasKnown = knownFans.has(key);
-    const value = fan.value == null ? null : Number(fan.value);
-    const state = String(fan.state || '').toLowerCase();
-    const health = String(fan.health || '').toLowerCase();
-    const explicitlyPresent = !['absent', 'disabled', 'unavailable'].includes(state) && (Number.isFinite(value) || !['', 'ok', 'unknown'].includes(health));
-    if (Number.isFinite(value) && value > 0 && state !== 'absent') knownFans.set(key, { key, serverId:server.id, sensor:fan.name, lastHealthyRpm:value, lastSeen:now });
-    if (!wasKnown && !explicitlyPresent) continue;
-    const reason = fanFailureReason(fan, wasKnown);
-    const existing = activeAlerts.get(key);
-    if (reason) {
-      const alert = existing || { key, id:crypto.randomUUID(), type:'fan', serverId:server.id, serverName:server.name, sensor:fan.name, since:now, status:'pending' };
-      alert.valueRpm = Number.isFinite(value) ? value : null; alert.reason = reason; alert.lastSeen = now;
-      if (now - alert.since >= settings.fanFailureDurationMinutes * 60000 && alert.status !== 'firing') {
-        alert.status = 'firing'; alert.firedAt = now;
-        appendAlertEvent({ ...alert, event:'fired', t:now }); sendAlertEmail(alert, 'fired');
-      }
-      activeAlerts.set(key, alert);
-    } else if (existing) {
-      if (existing.status === 'firing') { const resolved = { ...existing, valueRpm:value }; appendAlertEvent({ ...resolved, event:'resolved', t:now }); sendAlertEmail(resolved, 'resolved'); }
-      activeAlerts.delete(key);
-    }
-  }
-  saveFanState(); saveAlertState();
-}
-
 function getActiveAlerts() {
   loadAlertState();
-  return [...activeAlerts.values()].sort((a, b) => b.since - a.since);
+  // Never surface persisted alerts until a successful poll in this process has
+  // confirmed the server's current sensor inventory and readings.
+  return [...activeAlerts.values()].filter(alert => validatedAlertServers.has(alert.serverId)).sort((a, b) => b.since - a.since);
 }
 
 function readAlertEvents(limit = 100) {
@@ -759,7 +868,7 @@ async function pollServer(server, force = false, startup = false) {
     throw paused;
   }
   const cached = recentData.get(server.id);
-  if (!force && cached && Date.now() - cached.time < DATA_CACHE_MS) return cached.data;
+  if (!force && cached && Date.now() - cached.time < pollingIntervalMs()) return cached.data;
   if (pollInFlight.has(server.id)) return pollInFlight.get(server.id);
   // Startup gives every BMC a start slot within ten seconds. Steady-state
   // collection starts are spread evenly across the polling minute.
@@ -767,13 +876,20 @@ async function pollServer(server, force = false, startup = false) {
   const operation = enqueue(() => collectServer(server))
     .then(data => {
       bmcBackoffs.delete(server.id);
+      offlineSince.delete(server.id);
       recentData.set(server.id, { time: Date.now(), data });
+      rememberSuccessfulData(server.id, data);
       appendHistory(server.id, historySnapshot(data));
       evaluateTemperatureAlerts(server, data);
-      evaluateFanAlerts(server, data);
       return data;
     })
     .catch(error => {
+      if (!offlineSince.has(server.id)) {
+        loadLatestData();
+        const previous = recentData.get(server.id)?.data || lastSuccessfulData.get(server.id);
+        const lastSeen = new Date(previous?.collectedAt || 0).getTime();
+        offlineSince.set(server.id, Number.isFinite(lastSeen) && lastSeen > 0 ? lastSeen : Date.now());
+      }
       applyBmcBackoff(server.id, error);
       recordOffline(server.id, error);
       throw error;
@@ -876,6 +992,37 @@ async function pollAllServers(startup = false) {
   let servers;
   try { servers = readServers(); } catch (error) { console.error(`History poll: ${error.message}`); return; }
   await Promise.allSettled(servers.map(server => pollServer(server, false, startup)));
+  mobileService.syncSnapshot(mobileSnapshot(servers)).catch(error => console.error(`Mobile snapshot sync failed: ${error.message}`));
+}
+
+function mobileSnapshot(servers = readServers()) {
+  loadLatestData();
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    readOnly: true,
+    servers: servers.map(server => {
+      const cached = recentData.get(server.id)?.data || lastSuccessfulData.get(server.id);
+      if (!cached) return { server: publicServer(server), collectedAt: null, error: 'No successful collection is available yet.' };
+      const installedFans = connectedFanNames(server.id, cached.fans || []);
+      const since = offlineSince.get(server.id);
+      const history = readHistory(server.id, '4h');
+      const recentPoints = history.points.filter(point => Number(point.t) >= Date.now() - 4 * 60 * 60 * 1000);
+      const compactPoints = recentPoints.filter((_, index) => index % 5 === 0 || index === recentPoints.length - 1).map(point => ({
+        t: point.t,
+        temperatures: point.temperatures || {},
+        fans: Object.fromEntries(Object.entries(point.fans || {}).filter(([name]) => installedFans.has(name)))
+      }));
+      return {
+        ...cached,
+        fans:(cached.fans || []).filter(fan => installedFans.has(fan.name)),
+        telemetryHistory:{ range:'4h', intervalMs:10 * 60 * 1000, points:compactPoints },
+        ...(since ? { connectivity:{ online:false, lastSeenAt:cached.collectedAt || null, offlineSince:new Date(since).toISOString() } } : {})
+      };
+    }),
+    activeAlerts: getActiveAlerts(),
+    alertEvents: readAlertEvents(100)
+  };
 }
 
 function startHistoryPolling() {
@@ -934,21 +1081,40 @@ async function handleApi(request, response, pathname) {
     if (request.method === 'PUT' && pathname === '/api/alert-settings') {
       return json(response, 200, writeAlertSettings(await readBody(request)));
     }
+    if (request.method === 'GET' && pathname === '/api/monitoring-settings') {
+      return json(response, 200, readMonitoringSettings());
+    }
+    if (request.method === 'PUT' && pathname === '/api/monitoring-settings') {
+      return json(response, 200, writeMonitoringSettings(await readBody(request)));
+    }
     if (request.method === 'GET' && pathname === '/api/alerts/active') {
       return json(response, 200, getActiveAlerts());
     }
     if (request.method === 'GET' && pathname === '/api/alerts/events') {
       return json(response, 200, readAlertEvents(Number(requestUrl.searchParams.get('limit') || 100)));
     }
-    if (request.method === 'GET' && pathname === '/api/smtp-settings') {
-      return json(response, 200, readSmtpSettings(false));
+    if (request.method === 'GET' && pathname === '/api/mobile') {
+      return json(response, 200, mobileService.publicState());
     }
-    if (request.method === 'PUT' && pathname === '/api/smtp-settings') {
-      return json(response, 200, writeSmtpSettings(await readBody(request)));
+    if (request.method === 'POST' && pathname === '/api/mobile/owner/request') {
+      const body = await readBody(request);
+      return json(response, 200, await mobileService.requestOwnerCode({ ...body, appVersion: APP_VERSION }));
     }
-    if (request.method === 'POST' && pathname === '/api/smtp/test') {
-      const result = await sendSmtpMessage('[RackSight] Test notification', `RackSight SMTP notifications are configured correctly.\n\nSent: ${new Date().toLocaleString()}\n`, true);
-      return json(response, 200, { ok: true, ...result });
+    if (request.method === 'POST' && pathname === '/api/mobile/owner/verify') {
+      return json(response, 200, await mobileService.verifyOwnerCode(await readBody(request)));
+    }
+    if (request.method === 'POST' && pathname === '/api/mobile/enrollments') {
+      return json(response, 201, await mobileService.createEnrollment(await readBody(request)));
+    }
+    if (request.method === 'POST' && pathname === '/api/mobile/refresh') {
+      return json(response, 200, await mobileService.refreshDevices());
+    }
+    if (request.method === 'POST' && pathname === '/api/mobile/sync') {
+      await mobileService.syncSnapshot(mobileSnapshot(), true);
+      return json(response, 200, mobileService.publicState());
+    }
+    if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'mobile' && segments[2] === 'devices' && request.method === 'DELETE') {
+      return json(response, 200, await mobileService.revokeDevice(segments[3]));
     }
     if (request.method === 'GET' && pathname === '/api/servers') {
       return json(response, 200, readServers().map(publicServer));
@@ -981,6 +1147,9 @@ async function handleApi(request, response, pathname) {
       writeServers(next);
       bmcBackoffs.delete(segments[2]);
       recentData.delete(segments[2]);
+      loadLatestData();
+      if (lastSuccessfulData.delete(segments[2])) saveLatestData();
+      offlineSince.delete(segments[2]);
       bmcSessions.delete(segments[2]);
       response.writeHead(204); return response.end();
     }
@@ -988,7 +1157,10 @@ async function handleApi(request, response, pathname) {
       const server = readServers().find(item => item.id === segments[2]);
       if (!server) return json(response, 404, { error: 'Server not found.' });
       try { return json(response, 200, await pollServer(server)); }
-      catch (error) { return json(response, 502, { error: error.message, server: publicServer(server), collectedAt: new Date().toISOString() }); }
+      catch (error) {
+        const cached = cachedOfflineData(server, error);
+        return json(response, cached ? 200 : 502, cached || { error: error.message, server: publicServer(server), collectedAt: new Date().toISOString() });
+      }
     }
     if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'servers' && segments[3] === 'connect' && request.method === 'POST') {
       const server = readServers().find(item => item.id === segments[2]);
@@ -996,7 +1168,17 @@ async function handleApi(request, response, pathname) {
       bmcBackoffs.delete(server.id);
       recentData.delete(server.id);
       try { return json(response, 200, await pollServer(server, true)); }
-      catch (error) { return json(response, 502, { error: error.message, server: publicServer(server), collectedAt: new Date().toISOString() }); }
+      catch (error) {
+        const cached = cachedOfflineData(server, error);
+        return json(response, cached ? 200 : 502, cached || { error: error.message, server: publicServer(server), collectedAt: new Date().toISOString() });
+      }
+    }
+    if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'servers' && segments[3] === 'manager-reset' && request.method === 'POST') {
+      const server = readServers().find(item => item.id === segments[2]);
+      if (!server) return json(response, 404, { error:'Server not found.' });
+      const body = await readBody(request);
+      if (body.confirm !== true) return json(response, 400, { error:'Explicit confirmation is required before resetting a management controller.' });
+      return json(response, 202, await resetManager(server));
     }
     if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'servers' && segments[3] === 'history' && request.method === 'GET') {
       const server = readServers().find(item => item.id === segments[2]);
@@ -1048,4 +1230,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, fanFailureReason, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff, readHistory, startHistoryPolling, createApp, readServers, collectServer };
+module.exports = { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, uniqueSensors, validateAlertSettings, validateMonitoringSettings, isPresentFan, historySnapshot, downsampleHistory, nextBmcBackoff, managerResetTarget, safeManagerResetTypes, readHistory, startHistoryPolling, createApp, readServers, collectServer, mobileSnapshot };

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#08111f">
+  <meta name="theme-color" content="#F5F0E6">
   <title>RackSight · Redfish Infrastructure Monitor</title>
   <link rel="icon" type="image/png" href="/racksight-icon.png">
   <link rel="stylesheet" href="/styles.css">
@@ -16,6 +16,7 @@
         <button class="nav-item active" data-view="overview"><span>▦</span> Overview</button>
         <button class="nav-item" data-view="hardware"><span>◈</span> Hardware</button>
         <button class="nav-item" data-view="settings"><span>⚙</span> Settings</button>
+        <button class="nav-item" data-view="help"><span>?</span> Help</button>
       </nav>
       <div class="side-status"><span class="pulse"></span><div><strong>Live monitoring</strong><small id="refreshLabel">Refresh every 30s</small></div></div>
     </aside>
@@ -62,7 +63,30 @@
 
   <div id="detailPanel" class="drawer hidden">
     <div class="drawer-backdrop" data-detail-close></div>
-    <aside class="drawer-content"><button class="modal-close" data-detail-close aria-label="Close">×</button><div id="detailBody"></div></aside>
+    <section class="drawer-content" role="dialog" aria-modal="true" aria-label="Server details"><button class="modal-close" data-detail-close aria-label="Close server details">×</button><div id="detailBody"></div></section>
+  </div>
+  <div id="legalGate" class="legal-gate hidden" role="dialog" aria-modal="true" aria-labelledby="legalTitle">
+    <section class="legal-card">
+      <div class="legal-brand"><img src="/racksight-icon.png" alt=""><strong>RackSight</strong></div>
+      <p class="eyebrow">REQUIRED REVIEW</p>
+      <h2 id="legalTitle">Notifications and monitoring only, by design</h2>
+      <p>RackSight monitors datacenter hardware and alerts you when attention is required. Monitoring does not resolve a failure.</p>
+      <div class="disclosure-grid">
+        <article><h3>What RackSight does</h3><p>Reads Redfish monitoring data, retains telemetry history, and sends encrypted server, fan, temperature, and recovery alerts to enrolled Android devices.</p></article>
+        <article class="warning"><h3>What Android cannot do</h3><p>The Android app cannot send BMC, host, console, reset, remediation, configuration, or power commands back to the datacenter. It has no remote console or host access.</p></article>
+      </div>
+      <h3>MIT License</h3>
+      <pre class="license-text">MIT License
+
+Copyright (c) 2026 AuthorityGate
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</pre>
+      <button id="acceptMitLicense" class="button primary legal-accept" type="button">I understand and agree to the MIT License</button>
+    </section>
   </div>
   <div id="toast" class="toast hidden"></div>
   <script src="/app.js" defer></script>

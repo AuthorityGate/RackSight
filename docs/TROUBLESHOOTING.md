@@ -46,18 +46,18 @@ Use a hypervisor or operating-system data source such as vCenter/ESXi performanc
 - A brief spike resets when the sensor returns below threshold.
 - Browser notifications require permission and an open page.
 - Electron notifications require the tray process to remain running.
-- SMTP notifications require saved settings and a successful test email.
+- Android and email notifications require a verified owner, at least one registered device, and internet access on both RackSight and the phone.
 - Check `alert-events.jsonl` to distinguish alert evaluation from notification-delivery problems.
 
-## SMTP test fails
+## Android registration or delivery fails
 
-- Port 465 normally uses **TLS from connection**.
-- Port 587 normally starts plain and upgrades with STARTTLS, so secure mode is usually off.
-- Confirm the provider permits SMTP authentication and whether an application password is required.
-- Check outbound firewall rules and DNS.
-- Confirm the sender is permitted by the SMTP account.
+- Confirm the owner/device email code is entered within 10 minutes and has not exceeded five attempts.
+- Create a new QR code if more than five minutes passed or a different phone already consumed it.
+- Confirm RackSight can reach `license.authoritygate.com` over HTTPS and Settings shows a recent encrypted sync.
+- Confirm Android notification permission is allowed and battery/data restrictions are not blocking Firebase delivery.
+- Use **Refresh devices** to verify the device has not been revoked, then use **Sync now** to test encrypted data delivery.
 
-RackSight does not bypass certificate errors or authentication policy for SMTP.
+RackSight does not fall back to cleartext HTTP and does not expose an inbound internet listener.
 
 ## The app disappeared after closing the window
 
@@ -65,4 +65,4 @@ RackSight closes to the Windows notification area so monitoring continues. Doubl
 
 ## Diagnostic safety
 
-Before sharing logs or screenshots, remove hostnames, IP addresses, usernames, email addresses, serial numbers, asset tags, and environment-specific identifiers. Never share `master.key`, `servers.enc.json`, `smtp.enc.json`, a signing certificate private key, or token PIN.
+Before sharing logs or screenshots, remove hostnames, IP addresses, usernames, email addresses, serial numbers, asset tags, and environment-specific identifiers. Never share `master.key`, `servers.enc.json`, `mobile.enc.json`, an enrollment QR code, a signing certificate private key, or token PIN.

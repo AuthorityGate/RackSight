@@ -24,7 +24,7 @@ RackSight is a local-first hardware monitoring and alerting dashboard for server
 - Persistent 1-hour, 4-hour, 24-hour, 7-day, and 30-day charts
 - Configurable sustained-temperature alerts
 - Persistent fan-failure alerts that ignore unused headers
-- Browser, native Windows, and encrypted SMTP notifications
+- Browser, native Windows, Android push, and centralized email notifications
 
 RackSight reads BMC data; it does not change BIOS, boot, fan-control, or firmware settings.
 
@@ -83,8 +83,9 @@ RackSight releases are built and tested with Node.js 24. Node.js 22 is the minim
 3. Confirm the Overview and Hardware pages populate as expected.
 4. Open Settings and choose a physical temperature threshold and required duration.
 5. Enable Windows/browser notifications if desired.
-6. Configure SMTP and send a test message before enabling email alerts.
-7. Leave RackSight running so history and alerts continue collecting.
+6. Under **Notifications**, verify the installation owner's email address with the six-digit code. This is required before using centralized email or Android notifications.
+7. Email notifications activate after verification. To add Android notifications, create a five-minute QR enrollment and scan it with RackSight for Android.
+8. Leave RackSight running and connected to the internet so history, encrypted mobile sync, and alerts continue.
 
 ![RackSight settings](docs/images/racksight-settings.png)
 
@@ -108,7 +109,7 @@ Example value: `HISTORY_INTERVAL_MS=60000`.
 
 History starts when this version begins collecting and cannot reconstruct earlier telemetry.
 
-## Alerts and SMTP
+## Alerts and mobile notifications
 
 Temperature alerts apply only to physical Redfish temperature sensors. Synthetic values such as ASRock's `FSC_INDEX` are excluded. A sensor must remain above the configured threshold for the full duration before RackSight fires an alert.
 
@@ -116,14 +117,15 @@ Alerts can produce:
 
 - Browser notifications while the page is open
 - Native Windows notifications while Electron runs in the tray
-- SMTP high-temperature and recovery messages
+- End-to-end encrypted Android high-temperature and recovery notifications
+- Privacy-preserving email notices from `Alerts@AuthorityGate.com` to verified users
 - Persistent fired/recovery records in `alert-events.jsonl`
 
-SMTP passwords are encrypted at rest. Alert delivery is best-effort and requires the process to remain running; RackSight is not a safety controller.
+The legacy customer-configured SMTP feature has been removed. Email verification and generic alert notices are delivered centrally; no server names, sensor values, BMC addresses, or other monitoring details are placed in those emails. Detailed Android notifications are encrypted by the RackSight host and decrypted only on a registered device. Alert delivery is best-effort and requires internet connectivity on both sides. RackSight is not a safety controller.
 
 ## Credential and data storage
 
-BMC and SMTP passwords never return to the browser after saving. RackSight encrypts them with AES-256-GCM. IIS deployments use the persistent directory assigned with `RACKSIGHT_DATA_DIR`; Electron uses the current user's RackSight application-data directory.
+BMC passwords and mobile credentials never return to the browser after saving. RackSight encrypts them with AES-256-GCM. The separate 256-bit mobile data key is transferred only in a local, short-lived enrollment QR code. AuthorityGate stores encrypted telemetry envelopes and cannot decrypt them. IIS deployments use the persistent directory assigned with `RACKSIGHT_DATA_DIR`; Electron uses the current user's RackSight application-data directory.
 
 For a reproducible IIS deployment, configure a persistent `DASHBOARD_SECRET` in the managed service environment. Do not place the value in `web.config` or source control.
 
@@ -146,6 +148,7 @@ AMI firmware places `FSC_INDEX` in the Redfish temperature collection even thoug
 - [Centralized IIS installation](docs/INSTALL-IIS.md)
 - [Architecture and data flow](docs/ARCHITECTURE.md)
 - [Local API](docs/API.md)
+- [Android and mobile control-plane setup](docs/MOBILE.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)

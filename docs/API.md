@@ -9,7 +9,7 @@ The API has no built-in authentication. Electron keeps it on loopback. Centraliz
 - JSON responses use `Content-Type: application/json` and `Cache-Control: no-store`.
 - Validation failures return HTTP `400` with `{ "error": "message" }`.
 - A BMC collection failure returns HTTP `502`.
-- Credentials and SMTP passwords are never returned.
+- BMC credentials, mobile installation tokens, and mobile encryption keys are never returned.
 
 ## Servers
 
@@ -51,25 +51,29 @@ Alert settings:
 {
   "enabled": true,
   "thresholdC": 85,
+  "fanAlerts": true,
+  "minimumFanRpm": 500,
   "durationMinutes": 5,
-  "fanAlertsEnabled": true,
-  "fanFailureDurationMinutes": 2,
   "cooldownMinutes": 30,
   "browserNotifications": true
 }
 ```
 
-Thresholds apply to physical temperature sensors. Synthetic values such as ASRock `FSC_INDEX` are excluded. Fan monitoring learns connected fans and detects sustained zero RPM, disappearance, unavailable readings, or unhealthy Redfish status without alerting on unused headers.
+Temperature thresholds apply only to physical sensors; synthetic values such as ASRock `FSC_INDEX` are excluded. Fan monitoring learns connected fans and detects sustained low-RPM or missing-fan conditions without alerting on unused headers.
 
-## SMTP configuration
+## Android notification configuration
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/smtp-settings` | Read SMTP settings with the password removed. |
-| `PUT` | `/api/smtp-settings` | Validate and save encrypted SMTP settings. |
-| `POST` | `/api/smtp/test` | Send a test message using saved settings. |
+| `GET` | `/api/mobile` | Read redacted local mobile-registration status. |
+| `POST` | `/api/mobile/owner/request` | Send a six-digit installation-owner verification code. |
+| `POST` | `/api/mobile/owner/verify` | Verify the owner and obtain an encrypted local installation credential. |
+| `POST` | `/api/mobile/enrollments` | Create a five-minute, single-use Android enrollment QR code. |
+| `POST` | `/api/mobile/refresh` | Refresh the registered-device list from AuthorityGate. |
+| `POST` | `/api/mobile/sync` | Immediately upload a new end-to-end encrypted read-only snapshot. |
+| `DELETE` | `/api/mobile/devices/{id}` | Revoke one registered Android device and its refresh tokens. |
 
-Sending an empty password during an update preserves the existing encrypted password.
+These endpoints are administrative because the QR contains the installation's mobile data key. On IIS they inherit the dashboard's IIS authentication and authorization boundary. The AuthorityGate control-plane contract used by the connector is documented in [MOBILE.md](MOBILE.md).
 
 ## Stability
 

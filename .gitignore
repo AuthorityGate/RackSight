@@ -1,6 +1,11 @@
 data/
 node_modules/
 release/
+release-*/
 .electron-test/
+.wrangler/
+.tmp-*
+/StupidCaseFAN.png
+/racksight-*.png
 .DS_Store
 npm-debug.log*

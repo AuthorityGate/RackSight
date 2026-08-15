@@ -172,7 +172,10 @@ async function monitorAlerts(baseUrl) {
       const previous = notifiedAt.get(alert.id) || 0;
       if (now - previous < Number(settings.cooldownMinutes || 30) * 60000) continue;
       if (Notification.isSupported()) {
-        const notification = new Notification({ title:alert.type === 'fan' ? `Fan failure · ${alert.serverName}` : `High temperature · ${alert.serverName}`, body:alert.type === 'fan' ? `${alert.sensor}: ${alert.reason} (${alert.valueRpm ?? 'unavailable'} RPM)` : `${alert.sensor} is ${alert.valueC}°C (threshold ${alert.thresholdC}°C)`, icon:iconPath, urgency:'critical' });
+        const fan = alert.type === 'fan';
+        const title = `${fan ? 'Fan alert' : 'High temperature'} · ${alert.serverName}`;
+        const body = fan ? (alert.condition === 'missing' ? `${alert.sensor} is missing` : `${alert.sensor} is ${alert.valueRpm} RPM (minimum ${alert.thresholdRpm} RPM)`) : `${alert.sensor} is ${alert.valueC}°C (threshold ${alert.thresholdC}°C)`;
+        const notification = new Notification({ title, body, icon:iconPath, urgency:'critical' });
         notification.on('click', showWindow);
         notification.show();
       }
@@ -194,7 +197,7 @@ async function startApplication() {
   });
   startHistoryPolling();
   const baseUrl = `http://127.0.0.1:${webServer.address().port}`;
-  mainWindow = new BrowserWindow({ width:1440, height:960, minWidth:900, minHeight:650, show:false, icon:iconPath, backgroundColor:'#08111f', webPreferences:{ contextIsolation:true, nodeIntegration:false, sandbox:true, preload:path.join(__dirname, 'preload.js') } });
+  mainWindow = new BrowserWindow({ width:1440, height:960, minWidth:900, minHeight:650, show:false, icon:iconPath, backgroundColor:'#F5F0E6', webPreferences:{ contextIsolation:true, nodeIntegration:false, sandbox:true, preload:path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action:'deny' }; });
   mainWindow.once('ready-to-show', () => mainWindow.show());
@@ -205,7 +208,10 @@ async function startApplication() {
   tray.setContextMenu(Menu.buildFromTemplate([{ label:'Open RackSight', click:showWindow }, { type:'separator' }, { label:'Quit', click:() => { isQuitting = true; app.quit(); } }]));
   tray.on('double-click', showWindow);
   alertTimer = setInterval(() => monitorAlerts(baseUrl), 15000);
-  monitorAlerts(baseUrl);
+  // Let the initial BMC poll validate persisted alert state before displaying
+  // native notifications. This prevents stale records from a prior build from
+  // firing during the first second of startup.
+  setTimeout(() => monitorAlerts(baseUrl), 5000);
   configureUpdates();
 }
 

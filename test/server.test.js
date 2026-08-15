@@ -3,8 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
-const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, fanFailureReason, uniqueSensors, validateAlertSettings, validateSmtpSettings, historySnapshot, downsampleHistory, nextBmcBackoff } = require('../server');
+const { normalizeBaseUrl, encrypt, decrypt, statusOf, cleanInventoryValue, percentMetric, createLimiter, createStaggeredQueue, historyPollSpacingMs, startupPollSpacingMs, uniqueSensors, validateAlertSettings, validateMonitoringSettings, isPresentFan, historySnapshot, downsampleHistory, nextBmcBackoff, managerResetTarget, safeManagerResetTypes } = require('../server');
+const { normalizeEmail, validateApiUrl, encodeEnrollmentQr, encryptMobilePayload, decryptMobilePayload, createMobileService } = require('../mobile');
 
 test('normalizes BMC hostnames and addresses', () => {
   assert.equal(normalizeBaseUrl('bmc01.example.com'), 'https://bmc01.example.com');
@@ -79,8 +81,24 @@ test('staggering controls start order without waiting for prior scans to finish'
 test('backs off repeated BMC authentication and rate-limit responses', () => {
   assert.equal(nextBmcBackoff(), 5 * 60 * 1000);
   assert.equal(nextBmcBackoff(5 * 60 * 1000), 10 * 60 * 1000);
-  assert.equal(nextBmcBackoff(20 * 60 * 1000), 30 * 60 * 1000);
-  assert.equal(nextBmcBackoff(30 * 60 * 1000), 30 * 60 * 1000);
+  assert.equal(nextBmcBackoff(10 * 60 * 1000), 10 * 60 * 1000);
+  assert.equal(nextBmcBackoff(0, 2 * 60 * 1000), 2 * 60 * 1000);
+});
+
+test('permits only Redfish Manager restart actions and never host resets', () => {
+  const server = { address:'https://bmc.example.com' };
+  assert.equal(managerResetTarget(server, '/redfish/v1/Managers/1/Actions/Manager.Reset'), 'https://bmc.example.com/redfish/v1/Managers/1/Actions/Manager.Reset');
+  assert.throws(() => managerResetTarget(server, '/redfish/v1/Systems/1/Actions/ComputerSystem.Reset'), /never be reset/);
+  assert.throws(() => managerResetTarget(server, 'https://other.example.com/redfish/v1/Managers/1/Actions/Manager.Reset'), /unsafe external/);
+  assert.deepEqual(safeManagerResetTypes(['ForceOff','On','ForceRestart','GracefulRestart']), ['GracefulRestart','ForceRestart']);
+});
+
+test('limits configurable BMC polling to whole minutes from two through ten', () => {
+  assert.deepEqual(validateMonitoringSettings({ pollIntervalMinutes:5 }), { pollIntervalMinutes:5 });
+  assert.deepEqual(validateMonitoringSettings({ pollIntervalMinutes:2 }), { pollIntervalMinutes:2 });
+  assert.deepEqual(validateMonitoringSettings({ pollIntervalMinutes:10 }), { pollIntervalMinutes:10 });
+  assert.throws(() => validateMonitoringSettings({ pollIntervalMinutes:1 }), /2 to 10/);
+  assert.throws(() => validateMonitoringSettings({ pollIntervalMinutes:2.5 }), /whole number/);
 });
 
 test('creates compact history snapshots without full settings', () => {
@@ -123,23 +141,89 @@ test('accepts standard and expanded Redfish sensor shapes', () => {
   assert.equal(sensors.find(item => item.Name === 'Fan 1').Reading, 4200);
 });
 
-test('detects failures only for present or previously connected fans', () => {
-  assert.equal(fanFailureReason({ value:0, state:'Enabled', health:'OK' }), 'speed is 0 RPM');
-  assert.equal(fanFailureReason({ value:null, state:'Absent', health:'Unknown' }), null);
-  assert.equal(fanFailureReason({ value:null, state:'Absent', health:'Unknown' }, true), 'state is Absent');
-  assert.equal(fanFailureReason({ value:3000, state:'Enabled', health:'Critical' }, true), 'health is Critical');
-  assert.equal(fanFailureReason({ value:3000, state:'Enabled', health:'OK' }, true), null);
+test('validates temperature and fan alert settings', () => {
+  const settings = validateAlertSettings({ thresholdC:80, fanAlerts:true, minimumFanRpm:500, durationMinutes:5, cooldownMinutes:30 });
+  assert.equal(settings.thresholdC, 80);
+  assert.equal(settings.minimumFanRpm, 500);
+  assert.throws(() => validateAlertSettings({ thresholdC:150, minimumFanRpm:500, durationMinutes:5, cooldownMinutes:30 }), /threshold/);
+  assert.throws(() => validateAlertSettings({ thresholdC:80, minimumFanRpm:-1, durationMinutes:5, cooldownMinutes:30 }), /fan speed/);
 });
 
-test('validates alert and SMTP settings', () => {
-  const alerts = validateAlertSettings({ thresholdC:80, durationMinutes:5, cooldownMinutes:30 });
-  assert.equal(alerts.thresholdC, 80);
-  assert.equal(alerts.fanAlertsEnabled, true);
-  assert.equal(alerts.fanFailureDurationMinutes, 2);
-  assert.throws(() => validateAlertSettings({ thresholdC:150, durationMinutes:5, cooldownMinutes:30 }), /threshold/);
-  const smtp = validateSmtpSettings({ enabled:true, host:'smtp.example.com', port:587, secure:false, username:'user', password:'secret', from:'rack@example.com', to:'ops@example.com' });
-  assert.equal(smtp.port, 587);
-  assert.equal(smtp.to, 'ops@example.com');
+test('learns only physically present fan sensors', () => {
+  assert.equal(isPresentFan({ state:'Absent', value:null }), false);
+  assert.equal(isPresentFan({ state:'Enabled', value:null }), true);
+  assert.equal(isPresentFan({ state:'Enabled', value:0 }), true);
+  assert.equal(isPresentFan({ state:'Unknown', value:3200 }), true);
+});
+
+test('validates mobile addresses and requires HTTPS outside local development', () => {
+  assert.equal(normalizeEmail(' Admin@Example.com '), 'admin@example.com');
+  assert.throws(() => normalizeEmail('not-an-email'), /valid email/);
+  assert.equal(validateApiUrl('https://license.authoritygate.com/api/').endsWith('/api'), true);
+  assert.equal(validateApiUrl('http://127.0.0.1:8080/api'), 'http://127.0.0.1:8080/api');
+  assert.throws(() => validateApiUrl('http://example.com/api'), /HTTPS/);
+});
+
+test('mobile telemetry uses authenticated end-to-end encryption', () => {
+  const key = Buffer.alloc(32, 7).toString('base64url');
+  const value = { schemaVersion:1, servers:[{ name:'rack-01', health:'OK' }] };
+  const envelope = encryptMobilePayload(value, key, 'installation-1');
+  assert.equal(envelope.algorithm, 'A256GCM');
+  assert.equal(envelope.ciphertext.includes('rack-01'), false);
+  assert.deepEqual(decryptMobilePayload(envelope, key, 'installation-1'), value);
+  assert.throws(() => decryptMobilePayload(envelope, key, 'another-installation'));
+});
+
+test('uses a compact fixed-width QR enrollment payload', () => {
+  const encoded = encodeEnrollmentQr({
+    installation_id:'11111111-2222-4333-8444-555555555555',
+    enrollment_id:'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    pairing_token:Buffer.alloc(32, 3).toString('base64url'),
+    data_key:Buffer.alloc(32, 7).toString('base64url'),
+    expires_at:'2026-08-15T01:00:00.000Z'
+  });
+  assert.equal(encoded.startsWith('RS1:'), true);
+  assert.equal(encoded.length, 139);
+  assert.equal(Buffer.from(encoded.slice(4), 'base64url').length, 101);
+  assert.equal(encoded.includes('authoritygate.com'), false);
+  assert.equal(encoded.includes('@'), false);
+});
+
+test('mobile owner verification enables short-lived QR enrollment without exposing secrets in status', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'racksight-mobile-test-'));
+  const requests = [];
+  const replies = [
+    { challenge_id:'challenge-1' },
+    { installation_id:'11111111-2222-4333-8444-555555555555', installation_token:'installation-token-secret' },
+    {
+      enrollment_id:'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      pairing_token:Buffer.alloc(32, 3).toString('base64url'),
+      expires_at:new Date(Date.now() + 300000).toISOString()
+    }
+  ];
+  const service = createMobileService({
+    dataDir: directory,
+    encryptStore: value => ({ v:1, value }),
+    decryptStore: value => value.value,
+    apiUrl: 'http://127.0.0.1:8080/api/racksight/mobile/v1',
+    fetchFn: async (url, options) => {
+      requests.push({ url, options });
+      return { ok:true, status:200, text:async () => JSON.stringify(replies.shift()) };
+    }
+  });
+  try {
+    let status = await service.requestOwnerCode({ email:' Owner@Example.com ', company:'Example' });
+    assert.equal(status.status, 'verification-required');
+    status = await service.verifyOwnerCode({ code:'123456' });
+    assert.equal(status.configured, true);
+    assert.equal(JSON.stringify(status).includes('installation-token-secret'), false);
+    const enrollment = await service.createEnrollment({ email:'person@example.com' });
+    assert.match(enrollment.qrSvg, /^<svg/);
+    assert.equal(enrollment.email, 'person@example.com');
+    assert.equal(requests[2].options.headers.Authorization, 'Bearer installation-token-secret');
+  } finally {
+    fs.rmSync(directory, { recursive:true, force:true });
+  }
 });
 
 test('desktop updater completes the download before silent forced installation', () => {

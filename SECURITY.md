@@ -26,16 +26,18 @@ Do not submit ordinary installation, compatibility, configuration, or feature re
 - Treat `%APPDATA%\RackSight\data` or the configured `data/` directory as sensitive.
 - Back up `master.key` with encrypted credential files; do not commit either.
 - Prefer trusted BMC certificates. Self-signed BMC certificates are accepted by default for compatibility and weaken server identity verification.
-- Verify SMTP encryption, sender policy, and test delivery before relying on alerts.
+- Restrict RackSight Settings to administrators because enrollment QR codes carry the end-to-end mobile data key.
+- Revoke lost or replaced Android devices promptly from RackSight Settings.
 - Verify Windows release signatures name `AUTHORITYGATE INC` and compare release checksums.
 - Keep BMC firmware, Windows, Electron, Node.js, and dependencies current.
 
 ## Data handled
 
-RackSight stores BMC addresses, usernames, encrypted passwords, SMTP settings, alert events, hardware inventory, sensor history, firmware versions, serial numbers, and other Redfish-provided identifiers locally. It does not intentionally send telemetry to AuthorityGate or a cloud service. SMTP notifications send selected alert details to the configured mail system.
+RackSight stores BMC addresses, usernames, encrypted passwords, mobile enrollment credentials, alert events, hardware inventory, sensor history, firmware versions, serial numbers, and other Redfish-provided identifiers locally. When an administrator activates mobile notifications, RackSight sends AES-256-GCM encrypted telemetry and alert envelopes to AuthorityGate. The cloud stores no corresponding data key and cannot decrypt those envelopes. AuthorityGate does process verified email addresses, opaque credentials, device names, and Firebase Installation IDs for routing. Centralized email contains no monitoring details.
 
 ## Security limitations
 
 - Local encryption protects stored secrets but cannot protect them from a user or process that can read both encrypted files and the local key.
+- A person who captures an unexpired enrollment QR code and also controls its assigned email could register a device; QR codes are single-use and expire after five minutes.
 - The local API trusts clients able to connect to its listening socket.
 - RackSight is a monitoring aid, not a safety controller, access-control system, or replacement for vendor management software.

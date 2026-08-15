@@ -19,7 +19,7 @@ RackSight Node.js service at 127.0.0.1:3000
         |
         +---- HTTPS to Redfish BMCs
         +---- persistent encrypted configuration and JSONL history
-        +---- optional SMTP alerts
+        +---- outbound HTTPS to license.authoritygate.com for optional Android/email notifications
 ```
 
 ## Prerequisites
@@ -55,6 +55,8 @@ DASHBOARD_SECRET=<organization-managed persistent secret>
 
 Optional service values include `HISTORY_INTERVAL_MS=60000` and `ALLOW_SELF_SIGNED=false`. Store `DASHBOARD_SECRET` in the organization's protected service configuration or secrets system. Do not put it in source control or the IIS `web.config` file.
 
+Android notifications additionally require outbound HTTPS to `license.authoritygate.com`, Firebase endpoints, and Microsoft identity/Graph endpoints used by the AuthorityGate control plane. Override the control plane only for an approved private deployment with `RACKSIGHT_MOBILE_API_URL=https://example/api/racksight/mobile/v1`. RackSight never requires an inbound internet rule.
+
 Run `node server.js` under the organization's approved Windows service manager. Configure automatic startup, restart on failure, and log collection. The service must run independently of an interactive user session.
 
 ## IIS configuration
@@ -87,7 +89,7 @@ Run `node server.js` under the organization's approved Windows service manager. 
 
 ## Data protection and upgrades
 
-Back up the complete `C:\ProgramData\AuthorityGate\RackSight` directory as one unit. It contains the encryption key, encrypted BMC and SMTP credentials, alert state, alert history, and telemetry history. Encrypted files cannot be recovered without the matching `master.key` or unchanged `DASHBOARD_SECRET`.
+Back up the complete `C:\ProgramData\AuthorityGate\RackSight` directory as one unit. It contains the encryption key, encrypted BMC credentials, encrypted mobile registration/data key, alert state, alert history, and telemetry history. Encrypted files cannot be recovered without the matching `master.key` or unchanged `DASHBOARD_SECRET`.
 
 For an upgrade:
 
@@ -96,6 +98,6 @@ For an upgrade:
 3. Replace the application files with the new tagged release.
 4. Run `npm ci --omit=dev` in the program directory.
 5. Preserve the service environment and data directory unchanged.
-6. Start the service and verify the IIS site, server inventory, history, and SMTP test.
+6. Start the service and verify the IIS site, server inventory, history, and encrypted mobile sync status.
 
 Do not use the Electron auto-updater for an IIS deployment. Centralized releases should be promoted through the organization's normal server change process.

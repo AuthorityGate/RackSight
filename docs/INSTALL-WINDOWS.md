@@ -53,7 +53,7 @@ Electron stores RackSight data under the current Windows user's application-data
 %APPDATA%\RackSight\data
 ```
 
-This directory contains the encryption key, encrypted BMC and SMTP credentials, alert state, alert events, and telemetry history. Back up the entire directory as one unit. Copying only the encrypted credential files without `master.key` makes them unrecoverable.
+This directory contains the encryption key, encrypted BMC credentials, encrypted mobile registration/data key, alert state, alert events, and telemetry history. Back up the entire directory as one unit. Copying only encrypted files without `master.key` makes them unrecoverable.
 
 This directory is outside the installation folder and remains unchanged when RackSight is upgraded. Before an automatic update is installed, RackSight copies it to `%APPDATA%\RackSight\update-backups` and retains the three newest pre-update backups. If the primary data directory is unexpectedly missing after an update, RackSight restores the newest backup before starting its local service.
 
@@ -65,11 +65,11 @@ Installed builds check GitHub Releases shortly after startup. Settings displays 
 
 Closing the RackSight window hides it to the notification area. Monitoring and alerts continue while its tray icon is present. Choose **Quit** from the tray menu to stop polling and notifications completely.
 
-SMTP, browser, and native alerts require RackSight to remain running. Verify a test email before relying on email notification delivery.
+Browser, native Windows, Android, and email alerts require RackSight to remain running. Android and centralized email delivery also require outbound internet access.
 
 ## Network placement
 
-RackSight connects directly to each BMC over HTTPS. Allow outbound TCP 443 from the desktop to the management network. A read-only BMC account is recommended.
+RackSight connects directly to each BMC over HTTPS. Allow outbound TCP 443 from the desktop to the management network. Optional Android/email notifications also use outbound HTTPS to `license.authoritygate.com`; no inbound internet access is required. A read-only BMC account is recommended.
 
 Do not expose BMC interfaces or RackSight's embedded local service to the public internet.
 
